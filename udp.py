@@ -13,9 +13,15 @@ import os
 
 # args = parser.parse_args()
 
-if __name__ == "__main__":
+# no frills
+# varying mtu
+# compression
+# reliability (randomly drop some)
+# tls
+# congestion
+
+def flood_udp():
   UDP_PORT = 55681
-  
   with open(os.path.join('./data/', 'video.mp4'), 'rb') as f:
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket
@@ -35,3 +41,6 @@ if __name__ == "__main__":
         print(len(data))
     except socket.timeout:
         print('REQUEST TIMED OUT')
+
+if __name__ == "__main__":
+  flood_udp()

@@ -7,6 +7,6 @@ sock = socket.socket(socket.AF_INET, # Internet
 sock.bind(('', UDP_PORT))
 
 while True:
-    data, addr = sock.recvfrom(4096)
+    data, addr = sock.recvfrom(1024)
     sock.sendto(data, addr)                                                                                            
     print("received message: "+str(len(data)))
