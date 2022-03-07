@@ -1,9 +1,17 @@
 import socket  # Import socket module
 import os
 import re
-    
 
-if __name__ == "__main__":
+####################################
+#   
+#
+#
+#
+#
+#
+####################################
+
+def base_tcp():
   s = socket.socket()  # Create a socket object
   port = 50000  # Reserve a port for your service every new transfer wants a new port or you must wait.
   serverIP = socket.gethostbyname(socket.gethostname()) # IP address of the server (current machine)
@@ -19,6 +27,7 @@ if __name__ == "__main__":
   while x<100:
       st = str(x)
       byt = st.encode()
+      print("Byte:",byt)
       s.send(byt)
 
       print(x)
@@ -37,3 +46,6 @@ if __name__ == "__main__":
 
   print('closing')
   s.close()
+
+if __name__ == "__main__":
+    base_tcp()
