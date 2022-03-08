@@ -4,46 +4,20 @@ import time
 import os
 import struct
 import timeit
-from utils import rbt
+from utils import rbt, network
 from collections import deque
 from pathlib import Path
 import random
 
-# no frills
+# no frills: done
 # varying mtu
 # compression
-# reliability (randomly drop some)
+# reliability (randomly drop some): partial
 # tls
 # congestion
 # multiple parallel
 
-UDP_PORT = 55681
-
-
-def calculate_checksum(packet):
-    """Calculate the ICMPv6 checksum for a packet.
-
-    :param packet: The packet bytes to checksum.
-    :returns: The checksum integer.
-    """
-    total = 0
-
-    # Add up 16-bit words
-    num_words = len(packet) // 2
-    for chunk in struct.unpack("!%sH" % num_words, packet[0:num_words * 2]):
-        total += chunk
-
-    # Add any left over byte
-    if len(packet) % 2:
-        total += packet[-1] << 8
-
-    # Fold 32-bits into 16-bits
-    total = (total >> 16) + (total & 0xffff)
-    total += total >> 16
-    return ~total + 0x10000 & 0xffff
-
-
-def no_fills_udp_client():
+def no_frills_udp_client():
     UDP_PORT = 55681
     with open(os.path.join('./data/', 'video.mp4'), 'rb') as f:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -66,22 +40,9 @@ def no_fills_udp_client():
         except socket.timeout:
             print('REQUEST TIMED OUT')
 
-
-def create_packet(s, seq, payload, total_packets):
-    checksum = calculate_checksum(payload)
-    header = s.pack(seq, checksum, total_packets)
-    return (header + payload)
-
-
-def dessemble_packet(packet):
-    header = struct.unpack('!IHH', packet[0:8])
-    sequenceNum, checkSum, total_packets, data = header[0], header[1], header[2], packet[8:]
-    return sequenceNum, checkSum, total_packets, data
-
-
 def packet_ordering_udp_client(MTU=1472):
     serverIP = socket.gethostbyname(socket.gethostname())
-    input_path = os.path.join('./data/', 'test.txt')
+    input_path = os.path.join('./data/', 'test.file')
 
     with open(input_path, 'rb') as f:
         size = Path(input_path).stat().st_size
@@ -93,17 +54,18 @@ def packet_ordering_udp_client(MTU=1472):
         q = deque()
         s = struct.Struct('!IHH')
 
-        # sequencing
+        # sequencing, this will be done on receiving side
         seq = 1
         while seq <= total_packets:
             # payload = f.read(5)
             payload = "WDFBBQ".encode()
-            packet = create_packet(s, seq, payload, total_packets)
+            packet = network.create_packet(s, seq, payload, total_packets)
+            sock.sendto(packet, (serverIP, 6789))
             q.append(packet)
-            # send
+            print("packet sent")
             seq += 1
-            # break
-        
+        return
+
         # re odering
         tree = None
         pos = dict()
@@ -111,7 +73,7 @@ def packet_ordering_udp_client(MTU=1472):
         count = 0
         while (q):  
             packet = q.pop()
-            seq, chk, pck, data = dessemble_packet(packet)
+            seq, chk, pck, data = network.dessemble_packet(packet)
 
             if (not tree): # first time we init everything
                 arr = [None]*(pck+1)
@@ -126,7 +88,7 @@ def packet_ordering_udp_client(MTU=1472):
                 # if (random.random() > 0.9): 
                 #   count += 1
                 #   continue # simulate dropped
-                if (calculate_checksum(data) == chk):
+                if (network.calculate_checksum(data) == chk):
                   tree.delete_obj(pos[seq])
                   arr[seq] = data
                 # else:
@@ -141,18 +103,55 @@ def packet_ordering_udp_client(MTU=1472):
             checker += 1
         print(checker)
 
+# for experiment to suceed, we need to check that all packets are received
+# we dont request for resend, we just record lost packet % and time taken
+# 
+def varying_mtu_udp_client():
+    PORT = 7890
+    MTUS = [128,256,512,1024,1472,2048,4096,6144,8192,10240]
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
 
-        # size = os.stat(f).st_size
-        # total_packets =
-        # client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # client_socket
-        # client_socket.settimeout(5.0)
-        # serverIP = socket.gethostbyname(socket.gethostname()) # IP address of the server (current machine)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
 
-#   UDP with checksum
-#
-#
+    size = Path(input_path).stat().st_size
+    for mtu in MTUS:
+      seq = 1
+      with open(input_path, 'rb') as f:
+        total_packets = int(size/mtu) + 1
+        # we have to send a prior packet to inform mtu
+        print("Sending initial")
+        sock.send(mtu.to_bytes(2, 'big'))
+        # sock.sendto(mtu, (serverIP, PORT))
+        print("waiting reply")
+        # wait for acknowledgement before start
+        flag = False
+        while not flag:
+          data = sock.recv(mtu, socket.MSG_PEEK)
+          if (data): flag = True
+          print("received acknowledgement!")
+          print(data)
+        break
+      
+        # try:
+        #     data, server = client_socket.recvfrom(4096)
+        #     end = time.time()
+        #     elapsed = end - start
+        #     print("Received reply!")
+        #     print(len(data))
+        # except socket.timeout:
+        #     print('REQUEST TIMED OUT')
+
+        # payload = f.read(mtu)
+        # packet = network.create_packet(sock, seq, payload, total_packets)
+        # sock.sendto(packet, (serverIP, 6789))
+
+        # seq += 1
+
 
 
 if __name__ == "__main__":
-    packet_ordering_udp_client(1472)
+  # no_frills_udp_client()
+  varying_mtu_udp_client()
+  # packet_ordering_udp_client(1472)
