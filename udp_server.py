@@ -1,4 +1,6 @@
 import socket
+import struct
+from timeit import default_timer as timer
 
 def base_udp_scenario():
     UDP_PORT = 55681
@@ -28,12 +30,34 @@ def varying_mtu_udp_scenario():
     mtu = None
 
     while not mtu:
+        start = timer()
         data, addr = sock.recvfrom(10000, socket.MSG_PEEK)
+
         if (data): 
             mtu = True
-            print(data)
-            print("received acknowledgement from", addr)
+            data = struct.unpack('II', data)
+            mtu, total_packets = data[0], data[1]
+            print("received init from", addr)
             sock.sendto("1".encode(), addr)  
+        end = timer()
+        rtt = end - start
+        print("RTT = " + str(rtt))
+        # begin receiving flood
+        # record time
+        # record received = total packets
+        # how do we know when to stop
+        # if empty for 5 second we stop
+        time = list()
+        # whenever received, we add to time
+
+        start = timer()
+        timeout_start = timer()
+        while True:
+            
+            data, addr = sock.recvfrom(mtu)
+
+            print("received message: "+str(len(data)))
+
     # data, addr = 
     # while True:
     #     data, addr = sock.recvfrom(4096)

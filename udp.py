@@ -9,13 +9,15 @@ from collections import deque
 from pathlib import Path
 import random
 
-# no frills: done
-# varying mtu
-# compression
+# no frills (mass send): done
+# varying mtu: partial
+# compression: 
 # reliability (randomly drop some): partial
 # tls
 # congestion
 # multiple parallel
+# multiple conccurent access, client spawns multiple, constantly send packets, wait until exit signal
+#   - server spawn thread for each, 
 
 def no_frills_udp_client():
     UDP_PORT = 55681
@@ -116,24 +118,27 @@ def varying_mtu_udp_client():
     sock.connect((serverIP, PORT))
 
     size = Path(input_path).stat().st_size
-    for mtu in MTUS:
+    for mtu in MTUS: # loop mtus
       seq = 1
       with open(input_path, 'rb') as f:
         total_packets = int(size/mtu) + 1
+
         # we have to send a prior packet to inform mtu
         print("Sending initial")
-        sock.send(mtu.to_bytes(2, 'big'))
+        
+        init_packet = struct.pack('II', mtu, total_packets)
+        sock.send(init_packet)
+
         # sock.sendto(mtu, (serverIP, PORT))
-        print("waiting reply")
+        print("Experiment -",mtu,": awaiting reply for flood to begin")
         # wait for acknowledgement before start
         flag = False
         while not flag:
           data = sock.recv(mtu, socket.MSG_PEEK)
           if (data): flag = True
-          print("received acknowledgement!")
-          print(data)
+          print("Experiment -",mtu,": received acknowledgement, beginning flood")
         break
-      
+        
         # try:
         #     data, server = client_socket.recvfrom(4096)
         #     end = time.time()
