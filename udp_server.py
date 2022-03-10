@@ -1,17 +1,23 @@
-import socket
-import struct
+from itertools import count
+import socket, struct, threading
+import logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', 
+filename='./logs/varying_mtu.log', filemode='w')
+
 from timeit import default_timer as timer
 
 def base_udp_scenario():
     UDP_PORT = 55681
-    sock = socket.socket(socket.AF_INET, # Internet                                                                                                                       
-                    socket.SOCK_DGRAM) # UDP                                                                                                                         
+    sock = socket.socket(socket.AF_INET,  # Internet
+                         socket.SOCK_DGRAM)  # UDP
     sock.bind(('', UDP_PORT))
     print("server up")
     while True:
         data, addr = sock.recvfrom(4096)
-        sock.sendto(data, addr)                                                                                            
+        sock.sendto(data, addr)
         print("received message: "+str(len(data)))
+
 
 def reodering_udp_scenario():
     UDP_PORT = 6789
@@ -22,48 +28,72 @@ def reodering_udp_scenario():
         data, addr = sock.recvfrom(1472)
         print("received message", len(data))
 
+received_count = 0
+def receiver(sock, send_mtu):
+    global received_count
+    global flag
+    print("Status: receiver thread up")
+
+    while True:
+        try:
+            data, addr = sock.recvfrom(send_mtu)
+            received_count += 1
+        except socket.timeout as e:
+            print("Status: have not received anything in 5 secs, ending", addr)
+            sock.settimeout(3600)
+            flag = True
+            break
+    
+# Do locally
+# do on cloud
 def varying_mtu_udp_scenario():
+    global received_count
     UDP_PORT = 7890
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', UDP_PORT))
+    serverIP = socket.gethostbyname(socket.gethostname())
+    
+    s = struct.Struct('!II')
+    TIMEOUT = 5
+
     print("Varying mtu server up")
     mtu = None
 
     while not mtu:
-        start = timer()
-        data, addr = sock.recvfrom(10000, socket.MSG_PEEK)
+        print("Status: awaiting next experiment")
+        data, addr = sock.recvfrom(100, socket.MSG_PEEK)
 
-        if (data): 
-            mtu = True
-            data = struct.unpack('II', data)
-            mtu, total_packets = data[0], data[1]
-            print("received init from", addr)
-            sock.sendto("1".encode(), addr)  
+        if (data):
+            data = s.unpack(data)
+            send_mtu, total_packets = data[0], data[1]
+            print("Status: received init from", addr)
+            print("Status: settings", send_mtu, "-", total_packets)
+            sock.sendto("1".encode(), addr)
+
+        start = timer()
+        print("Status: awaiting flood", addr)
+        sock.settimeout(TIMEOUT)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, total_packets*send_mtu)
+        flag = False
+
+        receiverThread = threading.Thread(target = receiver, args = (sock,send_mtu))
+        receiverThread.start()
+
+        receiverThread.join()
+        
         end = timer()
         rtt = end - start
-        print("RTT = " + str(rtt))
-        # begin receiving flood
-        # record time
-        # record received = total packets
-        # how do we know when to stop
-        # if empty for 5 second we stop
-        time = list()
-        # whenever received, we add to time
+        print("Total % packets received:", round((received_count/total_packets)*100,5), " - received:",received_count,"| total:",total_packets )
+        print("Total time:", rtt-TIMEOUT)
+        print("Status: experiment complete - ", send_mtu)
+        
+        logging.info('serverIP=%s|RTT=%s|received=%s|total=%s|percent=%s', serverIP, round(rtt-TIMEOUT,5), received_count, total_packets, 
+            round((received_count/total_packets)*100,5))
+        received_count = 0
+        sock.sendto("1".encode(), addr)     
+    sock.close()
 
-        start = timer()
-        timeout_start = timer()
-        while True:
-            
-            data, addr = sock.recvfrom(mtu)
-
-            print("received message: "+str(len(data)))
-
-    # data, addr = 
-    # while True:
-    #     data, addr = sock.recvfrom(4096)
-    #     sock.sendto(data, addr)                                                                                            
-    #     print("received message: "+str(len(data)))  
 
 if __name__ == "__main__":
-    #reodering_udp_scenario()
+    # reodering_udp_scenario()
     varying_mtu_udp_scenario()
