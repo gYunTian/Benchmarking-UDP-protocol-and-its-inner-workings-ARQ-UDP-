@@ -204,9 +204,59 @@ def selective_repeat_udp_server():
                 sock.settimeout(3600)
                 break
 
+import zlib
+def compressed_udp_server():
+    PORT = 55681
+    serverIP = socket.gethostbyname(socket.gethostname())
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', PORT))
+    s = struct.Struct('i')
+    a = struct.Struct('!II')
+    print("Compression Experiment Server Started")
+
+    while True:
+        print("Status: awaiting experiment")
+        data, addr = sock.recvfrom(1500)
+
+        if (data):
+            init, total_packets = a.unpack(data)
+            print("Status: received init from", addr)
+            sock.sendto("1".encode(), addr)
+        
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
+        print("Status: experiment started")
+        count = 0
+        sock.settimeout(5.0)
+        received = list()
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(1500)
+                # sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+                #received.append(zlib.decompress(data))
+                received.append(data)
+                count += 1
+                
+                if (count >= total_packets):
+                    sock.sendto('1'.encode(), addr)
+                    print("Status: experiment ended")
+                
+            except Exception as e:
+                sock.sendto('1'.encode(), addr)
+                print("Status: experiment ended")
+                print("Count:",count)
+                print("Total:",total_packets)
+                print(e)
+                break
+        break
+    
+    # print(received[0])
+    sock.close()
 
 if __name__ == "__main__":
     # reodering_udp_scenario()
     # varying_mtu_udp_scenario()
     # go_back_N_udp_server()
-    selective_repeat_udp_server()
+    # selective_repeat_udp_server()
+    compressed_udp_server()

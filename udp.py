@@ -13,7 +13,8 @@ from pathlib import Path
 # no frills (mass send): done
 # varying mtu: partial
 # compression:
-# reliability (randomly drop some): partial
+# reliability: left selective partial
+# (randomly drop some): partial
 # tls
 # congestion
 # multiple parallel
@@ -25,7 +26,6 @@ def no_frills_udp_client():
     UDP_PORT = 55681
     with open(os.path.join('./data/', 'video.mp4'), 'rb') as f:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        client_socket
         client_socket.settimeout(5.0)
         # IP address of the server (current machine)
         serverIP = socket.gethostbyname(socket.gethostname())
@@ -219,7 +219,6 @@ def go_back_N_sender(sock, total_packets, window_size, retransmission_time):
     except Exception as e:
         print("error in sender")
         print(e)
-
 
 def go_back_N_receiver(sock, total_packets, a):
     global buffer
@@ -433,8 +432,56 @@ def selective_repeat_udp_client():
         time.sleep(20)
         # break
 
+import zlib
+def compress_text():
+    PORT = 55681
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.txt')
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    z = zlib.compressobj(-1,zlib.DEFLATED,31)
+    s = struct.Struct('i')
+    a = struct.Struct('!II')
+    send_buffer = list()
+    sock.settimeout(5.0)
+    
+    with open(input_path, 'rb') as f:
+        size = Path(input_path).stat().st_size
+        total_packets = int(size/1472) + 1
+        start = time.time()
+
+        for i in range(0, total_packets + 1):
+            payload = f.read(1472)
+            # gzip_compressed_data = zlib.compress(payload, 1)
+            send_buffer.append(payload)
+ 
+        print("Experiment sending initial")
+        sock.send(a.pack(1, total_packets))
+        print("Experiment awaiting reply for flood to begin")
+
+        while True:
+            data = sock.recvfrom(1472)
+            break
+        print("Received acknowledgement, experiment started")
+
+        count = 0
+        while count <= total_packets:
+            sock.send(send_buffer[0])
+            count += 1
+        sock.settimeout(3600)
+        while True:
+            data = sock.recvfrom(1472)
+            break
+        end = time.time() - start
+    
+    print(end)
+    print("Experiment complete")
+
+    sock.close()
+
 if __name__ == "__main__":
     # no_frills_udp_client()
     # varying_mtu_udp_client()
     # packet_ordering_udp_client(1472)
-    go_back_N_udp_client()
+    compress_text()

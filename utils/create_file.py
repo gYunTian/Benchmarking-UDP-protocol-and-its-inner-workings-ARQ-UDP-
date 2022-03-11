@@ -19,6 +19,15 @@ def generate_random_char_file(bytes, output_path, filename):
     out.write(np.random.choice(letters, int((bytes * 1000 * 10000)/bytes)))
     print("File created at",output_path)
 
+def create_file_numbers(size):
+
+    size_bytes = size * 1024
+    message = "hello world"
+    with open('../data/test.txt', 'w') as f:
+      repeat_amount = int((size_bytes/len(message)))
+      f.write(message * repeat_amount)
+    
 if __name__ == "__main__":
-  generate_random_char_file(32, "../data/", "test.txt")
+  # generate_random_char_file(32, "../data/", "test.txt")
+  create_file_numbers(32000)
 
