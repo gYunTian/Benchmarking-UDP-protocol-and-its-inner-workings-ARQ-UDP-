@@ -1,4 +1,10 @@
-import socket, time, os, struct, timeit, random, threading
+import socket
+import time
+import os
+import struct
+import timeit
+import random
+import threading
 
 from utils import rbt, network
 from collections import deque
@@ -40,6 +46,8 @@ def no_frills_udp_client():
 
 # measure additional time taken for packet resending
 # this will just mass resend
+
+
 def packet_resending_udp_client(MTU=1472):
     serverIP = socket.gethostbyname(socket.gethostname())
     input_path = os.path.join('./data/', 'test.file')
@@ -110,6 +118,8 @@ def packet_resending_udp_client(MTU=1472):
 
 # do for local and cloud
 # do for different file sizes
+
+
 def varying_mtu_udp_client():
     PORT = 7890
     MTUS = [128, 256, 512, 1024, 1472, 2048, 4096, 6144, 8192, 10240]
@@ -144,19 +154,20 @@ def varying_mtu_udp_client():
                     flag = True
                 print("Experiment -", mtu,
                       ": received acknowledgement, beginning flood")
-            
+
             time.sleep(2)
             for i in range(0, total_packets):
                 # print("send",i)
                 payload = f.read(mtu)
                 sock.send(payload)
-            
-            print("Experiment -", mtu,": finished transmission, awaiting results")
+
+            print("Experiment -", mtu, ": finished transmission, awaiting results")
             results = []
             while True:
-              data, addr = sock.recvfrom(mtu)
-              results.append(data)
-              if (len(results) == 2): break
+                data, addr = sock.recvfrom(mtu)
+                results.append(data)
+                if (len(results) == 2):
+                    break
 
             time_taken, percent_received = a.unpack(results[-1])
             print(time_taken, percent_received)
@@ -165,113 +176,262 @@ def varying_mtu_udp_client():
             #     if (data):
             #         print(data)
             #         flag = True
-            
+
             print("Experiment -", mtu, ": received results")
 
         print("Experiment -", mtu, ": reset for 15s")
         time.sleep(15)
 
+
 buffer = list()
 time_stamp = list()
 last_ack_sent = -1
 in_transit = 0
-retransmission_time = 0.2
 var_lock = threading.Lock()
 
-def go_back_N_sender(sock, total_packets, window_size):
-  global buffer
-  global last_ack_sent
-  global in_transit
-  global time_stamp
 
-  time_stamp = [None]*total_packets
-  try:
-    while (last_ack_sent + 1 < total_packets):
-      var_lock.acquire()
-      packetCount = last_ack_sent + in_transit + 1 # get current index of packet to send
-      if (in_transit < window_size and packetCount < total_packets): # if packets sent is less than window and index within range
-        sock.send(buffer[packetCount]) # send packet in current index
-        time_stamp[packetCount] = time.time() # start timer
-        in_transit += 1 # increment num packets sent
-      
-      if (in_transit > 0 and time.time() - time_stamp[last_ack_sent + 1] > retransmission_time): # check for timeout in earliest sent packet
-        print("Sequence Number:",last_ack_sent + 1, "timed out")
-        in_transit = 0 # if timed out, resend all in window
-      
-      var_lock.release()
+def go_back_N_sender(sock, total_packets, window_size, retransmission_time):
+    global buffer
+    global last_ack_sent
+    global in_transit
+    global time_stamp
 
-    print("Sent all packets")
-  except Exception as e:
-    print("error in sender")
-    print(e)
+    time_stamp = [None]*total_packets
+    try:
+        while (last_ack_sent + 1 < total_packets):
+            var_lock.acquire()
+            packetCount = last_ack_sent + in_transit + \
+                1  # get current index of packet to send
+            # if packets sent is less than window and index within range
+            if (in_transit < window_size and packetCount < total_packets):
+                sock.send(buffer[packetCount])  # send packet in current index
+                time_stamp[packetCount] = time.time()  # start timer
+                in_transit += 1  # increment num packets sent
 
-def go_back_N_receiver(sock, total_packets, a):
-  global buffer
-  global last_ack_sent
-  global in_transit
-  global time_stamp
+            # check for timeout in earliest sent packet
+            if (in_transit > 0 and time.time() - time_stamp[last_ack_sent + 1] > retransmission_time):
+                # print("Sequence Number:", last_ack_sent + 1, "timed out")
+                in_transit = 0  # if timed out, resend all in window
 
-  try:
-    while (last_ack_sent + 1 < total_packets):
-      if (in_transit > 0): # if packets have been sent
-        data, addr = sock.recvfrom(1472)
-        data = a.unpack(data) 
-        ack, seq = data[0], data[1]
+            var_lock.release()
 
-        var_lock.acquire()
-        if (ack): # if it is an acknowledgement for receipt of packet
-          if (last_ack_sent + 1 == seq):
-            last_ack_sent += 1
-            in_transit -= 1
-          else: in_transit = 0
-        else: # faulty packet
-          in_transit = 0
-        var_lock.release()
-      
-  except Exception as e:
-    print("error in receiver")
-    print(e)
-
-def go_back_N_udp_client():
-
-  PORT = 7890
-  serverIP = socket.gethostbyname(socket.gethostname())
-  input_path = os.path.join('./data/', 'test.file')
-
-  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  sock.connect((serverIP, PORT))
-  s = struct.Struct('!IHH')
-  a = struct.Struct('!II')
-
-  size = Path(input_path).stat().st_size 
-
-  for k in range(5,10):
-    with open(input_path, 'rb') as f:
-      total_packets = int(size/1472) + 1
-
-      for i in range(0, total_packets + 1):
-          payload = f.read(1472)
-          buffer.append(network.create_packet(s, i, payload, total_packets))
-      try:
-        start = time.time()
-        receiver_thread = threading.Thread(target = go_back_N_receiver, args = (sock, total_packets, a))
-        sender_thread = threading.Thread(target = go_back_N_sender, args = (sock, total_packets, k))
-        receiver_thread.start()
-        sender_thread.start()
-
-        receiver_thread.join()
-        sender_thread.join()
-      except Exception as e:
-        print("Error in main")
+        print("Experiment -", window_size, ": Sent all packets")
+    except Exception as e:
+        print("error in sender")
         print(e)
 
-      print("Transfer complete: ",k)
-      print("Time taken:",time.time()-start)
-  
-  sock.close()
+
+def go_back_N_receiver(sock, total_packets, a):
+    global buffer
+    global last_ack_sent
+    global in_transit
+    global time_stamp
+
+    while (last_ack_sent + 1 < total_packets):
+        if (in_transit > 0):  # if packets have been sent
+            data, addr = sock.recvfrom(1472)
+            data = a.unpack(data)
+            ack, seq = data[0], data[1]
+
+            var_lock.acquire()
+            if (ack):  # if it is an acknowledgement for receipt of packet
+                if (last_ack_sent + 1 == seq):
+                    last_ack_sent += 1
+                    in_transit -= 1
+                else:
+                    in_transit = 0
+            else:  # faulty packet
+                in_transit = 0
+            var_lock.release()
 
 
+def go_back_N_udp_client():
+    global buffer
+    global time_stamp
+    global last_ack_sent
+    global in_transit
 
+    PORT = 7890
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    s = struct.Struct('!IHH')
+    a = struct.Struct('!II')
+
+    for k in range(5, 10):
+        print("Experiment -", k, ": new experiment started")
+        with open(input_path, 'rb') as f:
+            size = Path(input_path).stat().st_size
+            total_packets = int(size/1472) + 1
+            for i in range(0, total_packets + 1):
+                payload = f.read(1472)
+                buffer.append(network.create_packet(
+                    s, i, payload, total_packets))
+
+            print("Experiment -", k, ": Sending initial")
+            init_rtt = time.time()
+            sock.send(a.pack(1, total_packets))
+            print("Experiment -", k, ": awaiting reply for flood to begin")
+
+            TIMEOUT = 0
+            while True:
+                data = sock.recvfrom(1472)
+                init_rtt = time.time() - init_rtt
+                TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
+                break
+            # timeout heuristic: 2*RTT + 1*processing_time
+
+            print("Experiment -", k,
+                  ": received acknowledgement, experiment started")
+            receiver_thread = threading.Thread(
+                target=go_back_N_receiver, args=(sock, total_packets, a))
+            sender_thread = threading.Thread(
+                target=go_back_N_sender, args=(sock, total_packets, k, (0.2)))
+
+            try:
+                start = time.time()
+                receiver_thread.start()
+                sender_thread.start()
+                receiver_thread.join()
+                sender_thread.join()
+            except Exception as e:
+                print("Error in main")
+                print(e)
+                sock.close()
+
+            print("Experiment -", k, ": complete")
+            print("Experiment -", k, ":", time.time()-start)
+            print("Experiment -", k, ": complete")
+            print("Resetting for 20 secs")
+
+            buffer = list()
+            time_stamp = list()
+            last_ack_sent = -1
+            in_transit = 0
+
+        time.sleep(20)
+
+    sock.close()
+
+
+dataPackets = []
+slidingWindow = {}
+isPacketTransferred = True
+windowLock = threading.Lock()
+
+def ack_receiver(clientSocket, a):
+    global isPacketTransferred
+    global slidingWindow
+    global windowLock
+
+    try:
+        while len(slidingWindow) > 0 or isPacketTransferred:
+            if len(slidingWindow) > 0:
+                data, addr = clientSocket.recvfrom(1472)
+                data = a.unpack(data)
+                ack, seq = data[0], data[1]
+
+                if (ack):
+                    if seq in slidingWindow:
+                        windowLock.acquire()
+                        del (slidingWindow[seq])
+                        if len(dataPackets) == seq + 1:
+                            print("Last acknowledgement received!!")
+
+                        windowLock.release()
+    except:
+        clientSocket.close()
+
+def rdt_send(clientSocket, N, retransmissionTime, total_packets):
+    global dataPackets
+    global slidingWindow
+    global windowLock
+    global isPacketTransferred
+    global dataPackets
+
+    sentPacketNum = 0
+    while sentPacketNum < total_packets:
+        if N > len(slidingWindow):
+            windowLock.acquire()
+            slidingWindow[sentPacketNum] = time.time()
+
+            clientSocket.send(dataPackets[sentPacketNum])
+            if sentPacketNum == total_packets: isPacketTransferred = False
+            windowLock.release()
+
+            while sentPacketNum in slidingWindow:
+                windowLock.acquire()
+                if sentPacketNum in slidingWindow:
+                    if(time.time() - slidingWindow[sentPacketNum]) > retransmissionTime:
+                        print("Time out, Sequence Number = {}".format(str(sentPacketNum)))
+                        slidingWindow[sentPacketNum] = time.time()
+                        clientSocket.send(dataPackets[sentPacketNum])
+                windowLock.release()
+            sentPacketNum += 1
+
+def selective_repeat_udp_client():
+    global selective_buffer
+    global window
+    global packet_transferred
+
+    PORT = 7890
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    s = struct.Struct('!IHH')
+    a = struct.Struct('!II')
+
+    for k in range(5, 10):
+        print("Experiment -", k, ": new experiment started")
+        with open(input_path, 'rb') as f:
+            size = Path(input_path).stat().st_size
+            total_packets = int(size/1472) + 1
+            for i in range(0, total_packets + 1):
+                payload = f.read(1472)
+                buffer.append(network.create_packet(
+                    s, i, payload, total_packets))
+
+            print("Experiment -", k, ": Sending initial")
+            init_rtt = time.time()
+            sock.send(a.pack(1, total_packets))
+            print("Experiment -", k, ": awaiting reply for flood to begin")
+
+            TIMEOUT = 0
+            while True:
+                data = sock.recvfrom(1472)
+                init_rtt = time.time() - init_rtt
+                TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
+                break
+            # timeout heuristic: 2*RTT + 1*processing_time
+
+            print("Experiment -", k,
+                  ": received acknowledgement, experiment started")
+            receiver_thread = threading.Thread(
+                target=ack_receiver, args=(sock, a))
+            sender_thread = threading.Thread(
+                target=rdt_send, args=(sock, k, TIMEOUT, total_packets))
+
+            try:
+                start = time.time()
+                receiver_thread.start()
+                sender_thread.start()
+                receiver_thread.join()
+                sender_thread.join()
+            except Exception as e:
+                print("Error in main")
+                print(e)
+                sock.close()
+
+            print("Experiment -", k, ": complete")
+            print("Experiment -", k, ":", time.time()-start)
+            print("Experiment -", k, ": complete")
+            print("Resetting for 20 secs")
+        time.sleep(20)
+        # break
 
 if __name__ == "__main__":
     # no_frills_udp_client()

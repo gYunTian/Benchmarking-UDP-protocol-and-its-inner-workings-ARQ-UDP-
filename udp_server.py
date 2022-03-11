@@ -1,5 +1,5 @@
 from timeit import default_timer as timer
-import socket
+import socket, time
 import struct
 import threading
 import logging
@@ -92,7 +92,7 @@ def varying_mtu_udp_scenario():
         end = timer()
         rtt = end - start
         percent = round((received_count/total_packets)*100, 5)
-        time = round(rtt-TIMEOUT, 5)
+        time = round(rtt-TIMEOUT-2, 5)
         print("Total % packets received:", percent, " - received:",
               received_count, "| total:", total_packets)
         print("Total time:", time)
@@ -117,35 +117,96 @@ def go_back_N_udp_server():
     sock.bind(('', PORT))
     s = struct.Struct('!IHH')
     a = struct.Struct('!II')
-    
-    previous_seq = -1
-    sock.settimeout(5)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,
-                        10000000)
     print("Go back N UDP Server Started")
 
     while True:
-        try:
-            data, addr = sock.recvfrom(1500)
-            sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-            
-            if (sequenceNum == previous_seq + 1):
+        print("Status: awaiting experiment")
+        data, addr = sock.recvfrom(1472)
+
+        if (data):
+            init, total_packets = a.unpack(data)
+            print("Status: received init from", addr)
+            sock.sendto("1".encode(), addr)
+        
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
+        print("Status: experiment started")
+        previous_seq = -1
+        count = 0
+        sock.settimeout(5.0)
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(1500)
+                sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+                count += 1
+                if (sequenceNum == previous_seq + 1):
+                    ack_packet = a.pack(1, sequenceNum)
+                    sock.sendto(ack_packet, addr)
+                    previous_seq = sequenceNum
+
+                if (count == total_packets): 
+                    print("Status: all packets received, ending experiment")
+                    sock.settimeout(3600)
+                    count = 0
+                    total_packets = 0
+                    break
+                
+            except socket.timeout as e:
+                print("Status: have not received anything in 5 secs, ending experiment")
+                sock.settimeout(3600)
+                break
+    
+def selective_repeat_udp_server():
+    PORT = 7890
+    serverIP = socket.gethostbyname(socket.gethostname())
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('', PORT))
+    s = struct.Struct('!IHH')
+    a = struct.Struct('!II')
+    print("Selective ARQ Server Started")
+
+    while True:
+        print("Status: awaiting experiment")
+        data, addr = sock.recvfrom(1472)
+
+        if (data):
+            init, total_packets = a.unpack(data)
+            print("Status: received init from", addr)
+            sock.sendto("1".encode(), addr)
+        
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
+        print("Status: experiment started")
+
+        count = 0
+        maxSeqNum = 0
+        sock.settimeout(5.0)
+        
+        while True:
+            try:
+                data, addr = sock.recvfrom(1500)
+                sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+                count += 1
+
+
                 ack_packet = a.pack(1, sequenceNum)
                 sock.sendto(ack_packet, addr)
-                previous_seq = sequenceNum
-
-        except socket.timeout as e:
-            print("Status: have not received anything in 5 secs, ending")
-            sock.settimeout(3600)
-            flag = True
-            break
-    
-    sock.close()
-
-
+                
+                if (count == total_packets): 
+                    print("Status: all packets received, ending experiment")
+                    sock.settimeout(3600)
+                    count = 0
+                    total_packets = 0
+                    break
+                
+            except socket.timeout as e:
+                print("Status: have not received anything in 5 secs, ending experiment")
+                sock.settimeout(3600)
+                break
 
 
 if __name__ == "__main__":
     # reodering_udp_scenario()
     # varying_mtu_udp_scenario()
-    go_back_N_udp_server()
+    # go_back_N_udp_server()
+    selective_repeat_udp_server()
