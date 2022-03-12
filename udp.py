@@ -1,3 +1,4 @@
+from concurrent.futures import thread
 import socket
 import time
 import os
@@ -6,13 +7,15 @@ import timeit
 import random
 import threading
 
+from sqlalchemy import true
+
 from utils import rbt, network
 from collections import deque
 from pathlib import Path
 
 # no frills (mass send): done
-# varying mtu: partial
-# compression:
+# varying mtu: done
+# compression: done
 # reliability: left selective partial
 # (randomly drop some): partial
 # tls
@@ -324,7 +327,7 @@ def ack_receiver(clientSocket, a):
     global isPacketTransferred
     global slidingWindow
     global windowLock
-
+    
     try:
         while len(slidingWindow) > 0 or isPacketTransferred:
             if len(slidingWindow) > 0:
@@ -425,7 +428,6 @@ def selective_repeat_udp_client():
                 print(e)
                 sock.close()
 
-            print("Experiment -", k, ": complete")
             print("Experiment -", k, ":", time.time()-start)
             print("Experiment -", k, ": complete")
             print("Resetting for 20 secs")
@@ -480,8 +482,371 @@ def compress_text():
 
     sock.close()
 
+import utils.ll as linkedlist
+POINTER_ARR = list()
+LL_NUM_ACK = 0
+SLIDING_WINDOW = {}
+LL_LOCK = threading.Lock()
+LL_BUFFER = linkedlist.dLinkedList()
+WAITED = 0
+
+def ll_sender(sock, total_packets, threshold, timeout, a):
+    global SLIDING_WINDOW
+    global LL_LOCK
+    global LL_NUM_ACK
+    global WAITED
+    global LL_BUFFER
+    global POINTER_ARR
+    counter = 0
+    
+    while LL_NUM_ACK < total_packets:
+        while len(SLIDING_WINDOW) < threshold:
+            if (counter>0): LL_NUM_ACK += 1
+            LL_LOCK.acquire()
+            node = LL_BUFFER.get_start()
+            for i in range(LL_NUM_ACK, LL_NUM_ACK+threshold+1):
+                if (not node.sent):
+                    print(i)
+                    SLIDING_WINDOW[i] = [time.time(), 0, node] # start time, rtt, pointer
+                    sock.send(node.data)
+                    node.sent = True
+                    node = node.next
+            LL_LOCK.release()
+        
+        print("SEND OVER")    
+        counter += 1
+        
+        while (len(SLIDING_WINDOW) > 0):
+            data, addr = sock.recvfrom(1472)
+            data = a.unpack(data)
+            ack, seq = data[0], data[1]
+            
+            if (ack):
+                LL_LOCK.acquire()  
+                if seq in SLIDING_WINDOW: 
+                    if (seq == (LL_NUM_ACK + 1)): 
+                        if (WAITED > 0):
+                            LL_NUM_ACK += WAITED
+                            WAITED = 0
+                        else:
+                            LL_NUM_ACK += 2
+                    else: 
+                        WAITED += 1
+
+                    del (SLIDING_WINDOW[seq])
+                    node = POINTER_ARR[seq].next
+                    LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+                LL_LOCK.release()  
+        
+        print("RECEIVED OVER")
+        if (counter == 1670): 
+            break
+    
+    print("WOOHOO")
+    print(LL_NUM_ACK)
+    # for k, v in SLIDING_WINDOW.items():
+    #     print(k, v)
+        # LL_LOCK.acquire()
+        # for k, v in SLIDING_WINDOW.items():
+        #     if(time.time() - SLIDING_WINDOW[k][0]) > timeout:
+        #         SLIDING_WINDOW[k][0] = time.time() # reset time
+        #         sock.send(SLIDING_WINDOW[k][2].data)
+        # LL_LOCK.release()
+
+    print("All packets sent")
+    time.sleep(10)
+
+def ll_receiver(sock, a):
+    global SLIDING_WINDOW
+    global LL_LOCK
+    global LL_BUFFER
+    global POINTER_ARR
+    global LL_NUM_ACK
+    global WAITED
+
+    while True:
+        while (len(SLIDING_WINDOW) > 0):
+            data, addr = sock.recvfrom(1472)
+            data = a.unpack(data)
+            ack, seq = data[0], data[1]
+            print(ack, seq)
+            
+            if (ack):
+                LL_LOCK.acquire()  
+                if seq in SLIDING_WINDOW: 
+                    if (seq == (LL_NUM_ACK + 1)): 
+                        LL_NUM_ACK += WAITED
+                        WAITED = 0
+                    else:
+                        WAITED += 1
+                    
+                    # LL_NUM_ACK += 1
+                    # SLIDING_WINDOW[seq][1] = time.time() - SLIDING_WINDOW[seq][0] # set RTT
+                    del (SLIDING_WINDOW[seq])
+                    LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+
+                
+                LL_LOCK.release()  
+            
+def ll_udp_client():
+    global POINTER_ARR
+    global LL_BUFFER
+
+    PORT = 7890
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    s = struct.Struct('!IHH')
+    a = struct.Struct('!II')
+
+    window_threshold = 12
+
+    print("Experiment ll based window control started")
+    with open(input_path, 'rb') as f:
+        size = Path(input_path).stat().st_size
+
+        total_packets = int(size/1472) + 1
+        POINTER_ARR = [None]*(total_packets + 1)
+
+        for i in range(0, total_packets + 1):
+            payload = f.read(1472)
+            node = LL_BUFFER.insert(network.create_packet(s, i, payload, total_packets))
+            POINTER_ARR[i] = node
+        
+        print("Experiment Sending initial")
+        init_rtt = time.time()
+        sock.send(a.pack(1, total_packets+1))
+        print("Experiment awaiting reply for flood to begin")
+
+        TIMEOUT = 0
+        while True:
+            data = sock.recvfrom(1472)
+            init_rtt = time.time() - init_rtt
+            TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
+            break
+
+        print("Experiment ll udp received acknowledgement, experiment started")
+
+        sender_thread = threading.Thread(
+            target=ll_sender, args=(sock, total_packets, window_threshold, TIMEOUT, a))
+        # receiver_thread = threading.Thread(
+        #         target=ll_receiver, args=(sock, a))
+
+        try:
+            start = time.time()
+            # receiver_thread.start()
+            sender_thread.start()
+            # receiver_thread.join()
+            sender_thread.join()
+        except Exception as e:
+            print("Error in main")
+            print(e)
+            sock.close()
+        
+        print("Experiment  complete")
+        print("Experiment ", time.time()-start)
+        print("Resetting for 20 secs")
+    
+# https://granulate.io/understanding-congestion-control/
+WINDOW_SIZE = 8
+SSTHRESH = 0
+
+LAST_ACK = 0
+TIME_STAMP_ARR = []
+
+CONGESTION_AVOIDANCE = False
+LOSS_EVENT = False
+AVG_RTT = 0
+
+ACKS_ARR = []
+IN_TRANSIT = 0
+
+RANDOM_ERROR = 0
+
+congestion_lock = threading.Lock()
+# https://www.cs.cmu.edu/~srini/15-441/F07/project3/project3.pdf
+def congestion_receiver(sock, total_packets, a, congestion_buffer):
+    global WINDOW_SIZE # cwnd
+    global SSTHRESH # cap
+    global IN_TRANSIT
+    global LAST_ACK # ack
+    global AVG_RTT # mean
+    global ACKS_ARR # arr
+    global LOSS_EVENT # boolean
+    global MAX_RTT
+    global TIME_STAMP_ARR # 0 is for timeout checks, 1 is for RTT of that packet
+    global CONGESTION_AVOIDANCE
+
+    ACKS_ARR = [0]*(total_packets+1)
+
+    while (LAST_ACK + 1 <= total_packets): # there are still packets yet to be sent
+        if (IN_TRANSIT > 0):  # if there are packets in transit
+            data, addr = sock.recvfrom(1472)
+            data = a.unpack(data)
+            ack, seq = data[0], data[1]
+            ACKS_ARR[seq] += 1 # count num of acks received for a seq
+
+            if (ack): # valid ack
+                congestion_lock.acquire()
+                TIME_STAMP_ARR[seq][1] = time.time() - TIME_STAMP_ARR[seq][0] # record RTT
+                print(TIME_STAMP_ARR[seq][1])
+
+                # AVG_RTT = (AVG_RTT+TIME_STAMP_ARR[seq][1])/(LAST_ACK+1) # 
+                # print(AVG_RTT)
+
+                # if (ACKS_ARR[seq] >= 3): # latest packet received had 3 acks
+                #     LOSS_EVENT = true
+                #     # assume all packets after seq is lost
+                #     IN_TRANSIT = 0
+                #     congestion_lock.release()
+                #     continue
+                
+                # if (not CONGESTION_AVOIDANCE): WINDOW_SIZE += 2
+                # if (WINDOW_SIZE >= SSTHRESH): CONGESTION_AVOIDANCE = True
+                
+                if (LAST_ACK + 1 == seq):
+                    LAST_ACK += 1
+                    IN_TRANSIT -= 1
+                else:
+                    IN_TRANSIT = 0
+                congestion_lock.release()
+
+            else: # faulty packet
+                congestion_lock.acquire()
+                # LOSS_EVENT = true
+                sock.send(congestion_buffer[seq])  # resend packet in current index
+                congestion_lock.release()
+
+def congestion_sender(sock, total_packets, retransmission_time, congestion_buffer):
+    global WINDOW_SIZE
+    global LAST_ACK
+    global TIME_STAMP_ARR
+    global RANDOM_ERROR
+    global IN_TRANSIT
+    global CONGESTION_AVOIDANCE
+    global AVG_RTT
+
+    TIME_STAMP_ARR = [[None,None] for i in range(0,total_packets)]
+    times = 1
+
+    sent_packets = 0
+    try:
+        while (sent_packets < total_packets):
+            print()
+            
+        # while (LAST_ACK + 1 < total_packets): # still have packets to send
+            
+        #     packetCount = LAST_ACK + IN_TRANSIT + 1
+            
+        #     # if (random.random() <= RANDOM_ERROR): # simulate timeout and send
+        #     #     times = random.randint(2,3)
+            
+        #     congestion_lock.acquire()
+        #     if (IN_TRANSIT < WINDOW_SIZE and packetCount < total_packets):
+        #         # for i in (0,times):
+        #         sock.send(congestion_buffer[packetCount])  # send packet in current index
+        #         TIME_STAMP_ARR[packetCount][0] = time.time()  # start timer
+        #         IN_TRANSIT += 1  # increment num packets sent
+            
+        #     # if timeout resend
+        #     if (IN_TRANSIT > 0 and time.time() - TIME_STAMP_ARR[LAST_ACK + 1][0] > max(retransmission_time, AVG_RTT)): 
+        #         IN_TRANSIT = 0
+        #         # CONGESTION_AVOIDANCE = True
+            
+        #     congestion_lock.release()
+        print("Experiment congestion control sent all packets")
+
+    except Exception as e:
+        print(e)
+        print("error in sender")
+
+def handler():
+    global CONGESTION_AVOIDANCE
+    global LOSS_EVENT
+    global WINDOW_SIZE
+    global AVG_RTT
+    global LAST_ACK
+
+    while True:
+        if (CONGESTION_AVOIDANCE):
+            time.sleep(AVG_RTT)
+            congestion_lock.acquire()
+            WINDOW_SIZE += 1
+            congestion_lock.release()
+
+        if (LOSS_EVENT):
+            congestion_lock.acquire()
+            WINDOW_SIZE = max(0.5*WINDOW_SIZE, 2)
+            LOSS_EVENT = False
+            congestion_lock.release()
+
+def congestion_control():
+    global SSTHRESH
+    global RANDOM_ERROR
+
+    PORT = 7890
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    s = struct.Struct('!IHH')
+    a = struct.Struct('!IIf')
+    congestion_buffer = list()
+    
+    print("Experiment congestion control started")
+    with open(input_path, 'rb') as f:
+        size = Path(input_path).stat().st_size
+        SSTHRESH = int((size/1024)/1.5)+1
+
+        total_packets = int(size/1472) + 1
+        for i in range(0, total_packets + 1):
+            payload = f.read(1472)
+            congestion_buffer.append(network.create_packet(
+                s, i, payload, total_packets))
+
+        print("Experiment Sending initial")
+        init_rtt = time.time()
+        sock.send(a.pack(1, total_packets, RANDOM_ERROR))
+        print("Experiment awaiting reply for flood to begin")
+
+        TIMEOUT = 0
+        while True:
+            data = sock.recvfrom(1472)
+            init_rtt = time.time() - init_rtt
+            TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
+            break
+        # timeout heuristic: 2*RTT + 1*processing_time
+        
+        print("Experiment received acknowledgement, experiment started")
+        receiver_thread = threading.Thread(
+            target=congestion_receiver, args=(sock, total_packets, a, congestion_buffer))
+        sender_thread = threading.Thread(
+            target=congestion_sender, args=(sock, total_packets, TIMEOUT, congestion_buffer))
+        handler_thread = threading.Thread(target=handler, args=())
+
+        try:
+            start = time.time()
+            receiver_thread.start()
+            sender_thread.start()
+            handler_thread.start()
+            receiver_thread.join()
+            sender_thread.join()
+            handler_thread.join()
+        except Exception as e:
+            print("Error in main")
+            print(e)
+            sock.close()
+        end = time.time() - start
+    print("Experiment over")
+    print(end)
+    time.sleep(20)
+
 if __name__ == "__main__":
     # no_frills_udp_client()
     # varying_mtu_udp_client()
     # packet_ordering_udp_client(1472)
-    compress_text()
+    # compress_text()
+    ll_udp_client()
