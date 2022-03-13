@@ -250,9 +250,12 @@ class RedBlackTree():
     def searchTree(self, k):
         return self.search_tree_helper(self.root, k)
 
-    def minimum(self, node):
+    def minimum(self):
+        print("HERE")
+        node = self.root
         while node.left != self.TNULL:
             node = node.left
+        print(node.item)
         return node
 
     def maximum(self, node):
@@ -366,15 +369,18 @@ class RedBlackTree():
 # if __name__ == "__main__":
 #     bst = RedBlackTree()
 
-#     starttime = timeit.default_timer()
+     # starttime = timeit.default_timer()
 
 #     for i in range(1,101):
 #       node = bst.insert(i)
-#     print(bst.size)
+    # print(bst.size)
 
-#     # for i in range(1,101):
-#     #   bst.delete_node(i)
-#     bst.delete_obj(node)
-#     print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
-#     print(bst.size)
-#     # bst.print_tree()
+    # for i in range(1,101):
+    #   bst.delete_node(i)
+    # bst.delete_obj(node)
+    # node = bst.minimum()
+    # print(node.item)
+
+    # print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
+    # print(bst.size)
+    # bst.print_tree()

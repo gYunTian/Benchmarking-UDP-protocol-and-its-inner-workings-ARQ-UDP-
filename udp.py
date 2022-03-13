@@ -489,6 +489,7 @@ SLIDING_WINDOW = {}
 LL_LOCK = threading.Lock()
 LL_BUFFER = linkedlist.dLinkedList()
 WAITED = 0
+STOP_THREAD = False
 
 def ll_sender(sock, total_packets, threshold, timeout, a):
     global SLIDING_WINDOW
@@ -513,7 +514,7 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
                     node = node.next
             LL_LOCK.release()
         
-        print("SEND OVER")    
+        # print("SEND OVER")    
         counter += 1
         
         while (len(SLIDING_WINDOW) > 0):
@@ -537,13 +538,13 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
                     node = POINTER_ARR[seq].next
                     LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
                 LL_LOCK.release()  
-        
-        print("RECEIVED OVER")
+
         if (counter == 1670): 
             break
     
-    print("WOOHOO")
+    print("OVER")
     print(LL_NUM_ACK)
+    print(LL_BUFFER.length)
     # for k, v in SLIDING_WINDOW.items():
     #     print(k, v)
         # LL_LOCK.acquire()
@@ -554,7 +555,7 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
         # LL_LOCK.release()
 
     print("All packets sent")
-    time.sleep(10)
+    # time.sleep(10)
 
 def ll_receiver(sock, a):
     global SLIDING_WINDOW
