@@ -1,5 +1,5 @@
 from concurrent.futures import thread
-import socket
+import socket, sys
 import time
 import os
 import struct
@@ -203,8 +203,7 @@ def go_back_N_sender(sock, total_packets, window_size, retransmission_time):
     try:
         while (last_ack_sent + 1 < total_packets):
             var_lock.acquire()
-            packetCount = last_ack_sent + in_transit + \
-                1  # get current index of packet to send
+            packetCount = last_ack_sent + in_transit + 1  # get current index of packet to send
             # if packets sent is less than window and index within range
             if (in_transit < window_size and packetCount < total_packets):
                 sock.send(buffer[packetCount])  # send packet in current index
@@ -373,6 +372,7 @@ def rdt_send(clientSocket, N, retransmissionTime, total_packets):
                 windowLock.release()
             sentPacketNum += 1
 
+
 def selective_repeat_udp_client():
     global selective_buffer
     global window
@@ -498,60 +498,43 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
     global WAITED
     global LL_BUFFER
     global POINTER_ARR
+    global STOP_THREAD
     counter = 0
-    
+
     while LL_NUM_ACK < total_packets:
+
+        # greedy sending
+        LL_LOCK.acquire()
+
         while len(SLIDING_WINDOW) < threshold:
             if (counter>0): LL_NUM_ACK += 1
-            LL_LOCK.acquire()
             node = LL_BUFFER.get_start()
+            
             for i in range(LL_NUM_ACK, LL_NUM_ACK+threshold+1):
                 if (not node.sent):
-                    print(i)
-                    SLIDING_WINDOW[i] = [time.time(), 0, node] # start time, rtt, pointer
-                    sock.send(node.data)
-                    node.sent = True
-                    node = node.next
-            LL_LOCK.release()
-        
-        # print("SEND OVER")    
+                    try:
+                        node.sent = True
+                        SLIDING_WINDOW[i] = [time.time(), 0, node] # start time, rtt, pointer
+                        sock.send(node.data)
+                        node = node.next
+                    except Exception as e:
+                        LL_NUM_ACK = total_packets
+                        STOP_THREAD = True
+                        break
+            if (STOP_THREAD): break
+
+        LL_LOCK.release()
         counter += 1
-        
-        while (len(SLIDING_WINDOW) > 0):
-            data, addr = sock.recvfrom(1472)
-            data = a.unpack(data)
-            ack, seq = data[0], data[1]
-            
-            if (ack):
-                LL_LOCK.acquire()  
-                if seq in SLIDING_WINDOW: 
-                    if (seq == (LL_NUM_ACK + 1)): 
-                        if (WAITED > 0):
-                            LL_NUM_ACK += WAITED
-                            WAITED = 0
-                        else:
-                            LL_NUM_ACK += 2
-                    else: 
-                        WAITED += 1
+        if (STOP_THREAD): break
+        # print(LL_BUFFER.length)
 
-                    del (SLIDING_WINDOW[seq])
-                    node = POINTER_ARR[seq].next
-                    LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
-                LL_LOCK.release()  
-
-        if (counter == 1670): 
-            break
-    
-    print("OVER")
-    print(LL_NUM_ACK)
-    print(LL_BUFFER.length)
-    # for k, v in SLIDING_WINDOW.items():
-    #     print(k, v)
+        # check for timed out packets
         # LL_LOCK.acquire()
         # for k, v in SLIDING_WINDOW.items():
-        #     if(time.time() - SLIDING_WINDOW[k][0]) > timeout:
-        #         SLIDING_WINDOW[k][0] = time.time() # reset time
-        #         sock.send(SLIDING_WINDOW[k][2].data)
+        #     for k, v in SLIDING_WINDOW.items():
+        #         if(time.time() - SLIDING_WINDOW[k][0]) > 1.0:
+        #             SLIDING_WINDOW[k][0] = time.time() # reset time
+        #             sock.send(SLIDING_WINDOW[k][2].data)
         # LL_LOCK.release()
 
     print("All packets sent")
@@ -564,31 +547,35 @@ def ll_receiver(sock, a):
     global POINTER_ARR
     global LL_NUM_ACK
     global WAITED
+    global STOP_THREAD
 
     while True:
+        LL_LOCK.acquire()  
         while (len(SLIDING_WINDOW) > 0):
+
             data, addr = sock.recvfrom(1472)
             data = a.unpack(data)
             ack, seq = data[0], data[1]
-            print(ack, seq)
             
-            if (ack):
-                LL_LOCK.acquire()  
-                if seq in SLIDING_WINDOW: 
-                    if (seq == (LL_NUM_ACK + 1)): 
+            if (ack and seq in SLIDING_WINDOW):
+                if (seq == (LL_NUM_ACK + 1)): 
+                    if (WAITED > 0):
                         LL_NUM_ACK += WAITED
                         WAITED = 0
                     else:
-                        WAITED += 1
-                    
-                    # LL_NUM_ACK += 1
-                    # SLIDING_WINDOW[seq][1] = time.time() - SLIDING_WINDOW[seq][0] # set RTT
-                    del (SLIDING_WINDOW[seq])
-                    LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+                        LL_NUM_ACK += 2
+                else: 
+                    WAITED += 1
 
-                
-                LL_LOCK.release()  
-            
+                del (SLIDING_WINDOW[seq])
+                LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+            if (STOP_THREAD): 
+                break
+        LL_LOCK.release()  
+
+        if (STOP_THREAD): break
+    print("Received all packets")
+
 def ll_udp_client():
     global POINTER_ARR
     global LL_BUFFER
@@ -611,11 +598,15 @@ def ll_udp_client():
         total_packets = int(size/1472) + 1
         POINTER_ARR = [None]*(total_packets + 1)
 
-        for i in range(0, total_packets + 1):
+        for i in range(0, total_packets):
             payload = f.read(1472)
-            node = LL_BUFFER.insert(network.create_packet(s, i, payload, total_packets))
-            POINTER_ARR[i] = node
-        
+            payload = network.create_packet(s, i, payload, total_packets)
+            if (isinstance(payload, (bytes))):
+                node = LL_BUFFER.insert(payload)
+                POINTER_ARR[i] = node
+            else:
+                print("WDF")
+
         print("Experiment Sending initial")
         init_rtt = time.time()
         sock.send(a.pack(1, total_packets+1))
@@ -632,15 +623,17 @@ def ll_udp_client():
 
         sender_thread = threading.Thread(
             target=ll_sender, args=(sock, total_packets, window_threshold, TIMEOUT, a))
-        # receiver_thread = threading.Thread(
-        #         target=ll_receiver, args=(sock, a))
+        receiver_thread = threading.Thread(
+                target=ll_receiver, args=(sock, a))
 
         try:
             start = time.time()
-            # receiver_thread.start()
+            receiver_thread.start()
             sender_thread.start()
-            # receiver_thread.join()
+
+            receiver_thread.join()
             sender_thread.join()
+            print("Ending thread")
         except Exception as e:
             print("Error in main")
             print(e)
@@ -850,4 +843,5 @@ if __name__ == "__main__":
     # varying_mtu_udp_client()
     # packet_ordering_udp_client(1472)
     # compress_text()
-    ll_udp_client()
+    # ll_udp_client()
+    selective_repeat_udp_client()

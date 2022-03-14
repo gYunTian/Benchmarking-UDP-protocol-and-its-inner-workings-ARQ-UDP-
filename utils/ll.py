@@ -16,8 +16,8 @@ class dLinkedList:
       return self.head.next
 
    def insert(self, value):
-      node = Node(value)
-
+      node = Node(data=value)
+      
       node.back = self.last
       node.next = self.tail
       self.last.next = node
