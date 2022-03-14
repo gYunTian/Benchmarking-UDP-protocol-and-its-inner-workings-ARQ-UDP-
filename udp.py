@@ -1,28 +1,19 @@
-from concurrent.futures import thread
-import socket, sys
-import time
-import os
-import struct
-import timeit
-import random
-import threading
-
-from sqlalchemy import true
-
+import socket, sys, time, os, struct, timeit, random, threading
 from utils import rbt, network
 from collections import deque
 from pathlib import Path
 
-# no frills (mass send): done
-# varying mtu: done
-# compression: done
-# reliability: left selective partial
-# (randomly drop some): partial
-# tls
-# congestion
-# multiple parallel
-# multiple conccurent access, client spawns multiple, constantly send packets, wait until exit signal
-#   - server spawn thread for each,
+# class based implementation: https://stackoverflow.com/questions/67931356/getting-connection-reset-error-on-closing-a-client-in-udp-sockets
+
+# no frills (mass send): done, have to measure vs TCP, and ensure all packets are received
+# blind resending & reodering: measure
+# varying mtu: done, have to measure
+# compression: done, have to measure
+# reliability: GoBackN & left selective partial
+# (randomly drop some): 
+# tls: 
+# congestion: very slow
+# custom alt to reliability: LL
 
 
 def no_frills_udp_client():
@@ -50,7 +41,9 @@ def no_frills_udp_client():
 # measure additional time taken for packet resending
 # this will just mass resend
 
-
+# send all those remain in rbt, by getting smallest and resending
+# need a iterator that loops from smallest to largest
+# then re order the packet and re assemble
 def packet_resending_udp_client(MTU=1472):
     serverIP = socket.gethostbyname(socket.gethostname())
     input_path = os.path.join('./data/', 'test.file')
@@ -114,13 +107,6 @@ def packet_resending_udp_client(MTU=1472):
                 print(i)
                 checker += 1
         print(checker)
-
-# packet reodering
-
-# reassembling the packets
-
-# do for local and cloud
-# do for different file sizes
 
 
 def varying_mtu_udp_client():
@@ -191,8 +177,6 @@ time_stamp = list()
 last_ack_sent = -1
 in_transit = 0
 var_lock = threading.Lock()
-
-
 def go_back_N_sender(sock, total_packets, window_size, retransmission_time):
     global buffer
     global last_ack_sent
@@ -244,7 +228,6 @@ def go_back_N_receiver(sock, total_packets, a):
             else:  # faulty packet
                 in_transit = 0
             var_lock.release()
-
 
 def go_back_N_udp_client():
     global buffer
@@ -321,7 +304,6 @@ dataPackets = []
 slidingWindow = {}
 isPacketTransferred = True
 windowLock = threading.Lock()
-
 def ack_receiver(clientSocket, a):
     global isPacketTransferred
     global slidingWindow
@@ -372,7 +354,8 @@ def rdt_send(clientSocket, N, retransmissionTime, total_packets):
                 windowLock.release()
             sentPacketNum += 1
 
-
+# this is wrong, there are two windows
+# https://www.geeksforgeeks.org/sliding-window-protocol-set-3-selective-repeat/
 def selective_repeat_udp_client():
     global selective_buffer
     global window
@@ -490,7 +473,6 @@ LL_LOCK = threading.Lock()
 LL_BUFFER = linkedlist.dLinkedList()
 WAITED = 0
 STOP_THREAD = False
-
 def ll_sender(sock, total_packets, threshold, timeout, a):
     global SLIDING_WINDOW
     global LL_LOCK
@@ -776,6 +758,7 @@ def handler():
             LOSS_EVENT = False
             congestion_lock.release()
 
+# to implement on LL
 def congestion_control():
     global SSTHRESH
     global RANDOM_ERROR
@@ -844,4 +827,5 @@ if __name__ == "__main__":
     # packet_ordering_udp_client(1472)
     # compress_text()
     # ll_udp_client()
-    selective_repeat_udp_client()
+    # selective_repeat_udp_client()
+    simple_ssl_udp_client()

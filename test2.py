@@ -21,29 +21,32 @@ def ack_receiver(clientSocket, a):
                 data = a.unpack(data)
                 ack, seq = data[0], data[1]
 
-                if (ack and seq in slidingWindow):
-                    windowLock.acquire()
-                    del (slidingWindow[seq])
-                    windowLock.release()
+                if (ack):
+                    if seq in slidingWindow:
+                        windowLock.acquire()
+                        del (slidingWindow[seq])
+                        windowLock.release()
+                        if len(dataPackets) == seq + 1:
+                            print("Last acknowledgement received!!")
     except:
         clientSocket.close()
 
 def rdt_send(clientSocket, N, retransmissionTime, total_packets):
+    global dataPackets
     global slidingWindow
     global windowLock
     global isPacketTransferred
     global dataPackets
-    
+
     sentPacketNum = 0
     while sentPacketNum < total_packets:
         if N > len(slidingWindow):
-            windowLock.acquire()
+            
             slidingWindow[sentPacketNum] = time.time()
 
             clientSocket.send(dataPackets[sentPacketNum])
             if sentPacketNum == total_packets: isPacketTransferred = False
-            windowLock.release()
-
+            
             while sentPacketNum in slidingWindow:
                 windowLock.acquire()
                 if sentPacketNum in slidingWindow:
@@ -52,11 +55,11 @@ def rdt_send(clientSocket, N, retransmissionTime, total_packets):
                         slidingWindow[sentPacketNum] = time.time()
                         clientSocket.send(dataPackets[sentPacketNum])
                 windowLock.release()
-            if (sentPacketNum%1000==0): print(sentPacketNum)
             sentPacketNum += 1
+            print(sentPacketNum)
 
 def selective_repeat_udp_client():
-    global dataPackets
+    global selective_buffer
     global window
     global packet_transferred
 
@@ -116,4 +119,6 @@ def selective_repeat_udp_client():
             print("Resetting for 20 secs")
         time.sleep(20)
         # break
-selective_repeat_udp_client()
+
+if __name__ == "__main__":
+    selective_repeat_udp_client()
