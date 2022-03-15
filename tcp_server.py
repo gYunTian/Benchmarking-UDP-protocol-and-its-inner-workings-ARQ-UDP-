@@ -9,7 +9,7 @@ def base_tcp():
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind(("", PORT))
     s.listen(1)
-
+  
     while True:
       conn, addr = s.accept()
       # s.settimeout(5.0)   

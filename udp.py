@@ -1,4 +1,4 @@
-import socket, sys, time, os, struct, timeit, random, threading
+import socket, sys, time, os, struct, timeit, random, threading, select
 from typing import List
 from utils import rbt, network
 from collections import deque
@@ -503,21 +503,26 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
     global POINTER_ARR
     global STOP_THREAD
     global SEND_LIST
-
-    counter = 0
-    while (LL_NUM_ACK < total_packets):
+    
+    
+    print("Total packets to send:",total_packets)
+    while (LL_BUFFER.length > 0):
+    # while (LL_NUM_ACK < total_packets):
+        # print("STUCK1")
         # LL_LOCK.acquire()
         if (len(SLIDING_WINDOW) < threshold):
-            if (counter>0): LL_NUM_ACK += 1
+            # print("STUCK2")
             node = LL_BUFFER.get_start()
             for i in range(LL_NUM_ACK, LL_NUM_ACK+threshold+1):
+                # print("STUCK3")
                 if (not node.was_sent()):
+                    # print("STUCK4")
                     try:
                         node.set_sent()
                         sent_time = time.time()
-                        SLIDING_WINDOW[i] = [sent_time, 0, node] # start time, rtt, pointer
+                        SLIDING_WINDOW[node.get_idx()] = [sent_time, 0, node] # start time, rtt, pointer
                         sock.send(node.get_data())
-                        SEND_LIST_seq.append(i)
+                        SEND_LIST_seq.append(node.get_idx())
                         SEND_LIST_time.append(sent_time)
                         node = node.get_next()
 
@@ -527,48 +532,60 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
             
             if (STOP_THREAD): break
         # LL_LOCK.release()
-
-        counter += 1
         if (STOP_THREAD): break
 
-        if (len(SLIDING_WINDOW) > 0):
-            data, addr = sock.recvfrom(1472)
-            data = a.unpack(data)
-            ack, seq = data[0], data[1]
-
-            if (seq in SLIDING_WINDOW):
-                print("RECEIVED:",seq)
-                ACK_LIST_seq.append(seq)
-                ACK_list_time.append(time.time())
-                 
-                if (seq == (LL_NUM_ACK + 1)): 
-                    if (WAITED > 0):
-                        LL_NUM_ACK += WAITED
-                        WAITED = 0
-                    else:
-                        LL_NUM_ACK += 2
-                else: 
-                    WAITED += 1
-                
-                del (SLIDING_WINDOW[seq])
-                LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
-            else:
-                print("NOT RECEIVED:", seq)
-                for k,v in SLIDING_WINDOW.items():
-                    sequenceNum, checkSum, total_packets, data = network.dessemble_packet(v[2].data)
-                    if (sequenceNum == seq):
-                        print("ARE YOU FUCKING KIDDING ME!")
-                        print(type(sequenceNum), "VS", type(seq))
-                        print(seq in SLIDING_WINDOW)
         # LL_LOCK.acquire()
-        # if (len(SLIDING_WINDOW) > 0):
-        #     for k, v in SLIDING_WINDOW.items():
-        #         sent_time, end_time, node = v
-        #         if ((time.time() - sent_time) > 0.05):
-        #             SLIDING_WINDOW[k] = [time.time(), 0, node]
-        #             sock.send(node.data)
+        if (len(SLIDING_WINDOW) > 0):
+            # print("STUCK7")
+            for k, v in SLIDING_WINDOW.items():
+                # print("STUCK8")
+                sent_time, end_time, node = v
+                if ((time.time() - sent_time) > 0.05):
+                    # print("STUCK9")
+                    sock.send(node.get_data())
+                    SLIDING_WINDOW[k] = [time.time(), 0, node]
+                    SEND_LIST_seq.append(k)
+                    SEND_LIST_time.append(sent_time)
         # LL_LOCK.release()
-    print("HERE8")
+
+        while (len(SLIDING_WINDOW) > 0):
+            r, _, _ = select.select([sock],[],[],0)
+            if (r):
+                # print("READY TO RECEIVE")
+                data, addr = sock.recvfrom(1500)
+                data = a.unpack(data)
+                ack, seq = data[0], data[1]
+
+                if (seq in SLIDING_WINDOW):
+                    # print("STUCK6")
+                    ACK_LIST_seq.append(seq)
+                    ACK_list_time.append(time.time())
+                    if (seq == (LL_NUM_ACK + 1)): 
+                        if (WAITED > 0):
+                            LL_NUM_ACK += WAITED
+                            WAITED = 0
+                        else:
+                            LL_NUM_ACK += 1
+                    else: 
+                        WAITED += 1
+                    
+                    del (SLIDING_WINDOW[seq])
+                    LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+                    # print(LL_BUFFER.length)
+            else:
+                # print("NOT READY TO RECEIVE")
+                for k, v in SLIDING_WINDOW.items():
+                    # print("STUCK11")
+                    sent_time, end_time, node = v
+                    if ((time.time() - sent_time) > 0.05):
+                        # print("STUCK12")
+                        sock.send(node.get_data())
+                        SLIDING_WINDOW[k] = [time.time(), 0, node]
+                        SEND_LIST_seq.append(k)
+                        SEND_LIST_time.append(sent_time)
+                    
+        # print("END OF ALL")
+
     print("All packets sent")
 
 def ll_receiver(sock, a, total_packets):
@@ -635,7 +652,7 @@ def ll_udp_client():
             payload = f.read(1472)
             payload = network.create_packet(s, i, payload, total_packets)
             if (isinstance(payload, (bytes))):
-                node = LL_BUFFER.insert(payload)
+                node = LL_BUFFER.insert(value=payload, idx=i)
                 POINTER_ARR[i] = node
             else:
                 print("WDF")

@@ -1,10 +1,11 @@
 class Node:
-   def __init__(self, data=None):
+   def __init__(self, idx, data=None):
       self.data = data
       self.next = None
       self.back = None
       self.sent = False
-   
+      self.index = idx
+
    def set_sent(self):
       self.sent = True
    
@@ -17,6 +18,9 @@ class Node:
    def was_sent(self):
       return self.sent
 
+   def get_idx(self):
+      return self.index
+   
 class dLinkedList:
    def __init__(self):
       self.head = Node(-1)
@@ -27,8 +31,8 @@ class dLinkedList:
    def get_start(self):
       return self.head.next
 
-   def insert(self, value):
-      node = Node(data=value)
+   def insert(self, value, idx):
+      node = Node(data=value, idx=idx)
       
       node.back = self.last
       node.next = self.tail

@@ -193,7 +193,7 @@ def ll_udp_server():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
             print("Status: experiment started")
 
-            sock.settimeout(4.0)
+            sock.settimeout(2.0)
 
         except Exception as e:
             print(e)
@@ -201,15 +201,14 @@ def ll_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                # if (random.random() <= loss): continue
-
+                if (random.random() <= loss): continue
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 received.add(sequenceNum)
 
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
-                print(sequenceNum)
-                
+                # print(len(received))
+
                 if (len(received) == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
@@ -218,7 +217,9 @@ def ll_udp_server():
                     break
 
             except socket.timeout as e:
+                print(len(received))
                 print("Status: have not received anything in 5 secs, ending experiment")
+
                 received = set()
                 count = 0
                 total_packets = 0   
