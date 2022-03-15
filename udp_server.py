@@ -11,13 +11,29 @@ def base_udp_scenario():
     sock = socket.socket(socket.AF_INET,  # Internet
                          socket.SOCK_DGRAM)  # UDP
     sock.bind(('', UDP_PORT))
-    print("server up")
+    print("base no frills Server Started")
+    
+    total_packets = 21740
+    # sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
+    count = 0
+
     while True:
-        data, addr = sock.recvfrom(4096)
-        sock.sendto(data, addr)
-        print("received message: "+str(len(data)))
-
-
+        try:
+            data, addr = sock.recvfrom(1500)
+            count += 1
+            
+            if (count == total_packets): 
+                print("Status: all packets received, ending experiment")
+                sock.settimeout(3600)
+                count = 0
+                total_packets = 0
+                break
+            
+        except socket.timeout as e:
+            print("Status: have not received anything in 5 secs, ending experiment")
+            sock.settimeout(3600)
+            break
+    
 def reodering_udp_scenario():
     UDP_PORT = 6789
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -364,5 +380,6 @@ if __name__ == "__main__":
     # selective_repeat_udp_server()
     # compressed_udp_server()
     # congestion_udp_server()
-    #ll_udp_server()
-    selective_repeat_udp_server()
+    ll_udp_server()
+    # selective_repeat_udp_server()
+    # base_udp_scenario()

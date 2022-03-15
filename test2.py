@@ -1,4 +1,4 @@
-import time, socket, struct, os, path
+import time, socket, struct, os
 import threading
 from utils import network
 from pathlib import Path
@@ -91,7 +91,7 @@ def selective_repeat_udp_client():
             while True:
                 data = sock.recvfrom(1472)
                 init_rtt = time.time() - init_rtt
-                TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
+                TIMEOUT = max(init_rtt+init_rtt+0.2, TIMEOUT)
                 break
             # timeout heuristic: 2*RTT + 1*processing_time
 

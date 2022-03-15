@@ -34,6 +34,7 @@ def selective_repeat_udp_server():
                 count += 1
                 ack_packet = a.pack(1, sequenceNum)
                 sock.sendto(ack_packet, addr)
+                
                 print(count)
                 if (count == total_packets): 
                     print("Status: all packets received, ending experiment")

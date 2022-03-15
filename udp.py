@@ -1,42 +1,53 @@
 import socket, sys, time, os, struct, timeit, random, threading
+from typing import List
 from utils import rbt, network
 from collections import deque
 from pathlib import Path
+from matplotlib import pyplot as plt
+import numpy as np
 
 # class based implementation: https://stackoverflow.com/questions/67931356/getting-connection-reset-error-on-closing-a-client-in-udp-sockets
 
-# no frills (mass send): done, have to measure vs TCP, and ensure all packets are received
-# blind resending & reodering: measure
+
+# no frills (mass send): Done, measure and visualize
+# blind resending & reodering: Do a full blast send, randomly drop, ask for resend, measure
 # varying mtu: done, have to measure
 # compression: done, have to measure
-# reliability: GoBackN & left selective partial
+
+# reliability: GoBackN & LL based, left selective partial
+#       the purpose of this is to illustrate with resending so we need compare it in scenarios with high packet drop
+
 # (randomly drop some): 
-# tls: 
 # congestion: very slow
 # custom alt to reliability: LL
 
 
 def no_frills_udp_client():
-    UDP_PORT = 55681
-    with open(os.path.join('./data/', 'video.mp4'), 'rb') as f:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        client_socket.settimeout(5.0)
-        # IP address of the server (current machine)
-        serverIP = socket.gethostbyname(socket.gethostname())
 
-        start = time.time()
-        message = f.read(4096)
+    PORT = 55681
+    serverIP = socket.gethostbyname(socket.gethostname())
+    input_path = os.path.join('./data/', 'test.file')
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.connect((serverIP, PORT))
+    # s = struct.Struct('!IHH')
+    # a = struct.Struct('!II')
+    no_frills_buffer = list()
+    
+    with open(input_path, 'rb') as f:
+        size = Path(input_path).stat().st_size
+        total_packets = int(size/1472) + 1
+        for i in range(0, total_packets):
+            payload = f.read(1472)
+            no_frills_buffer.append(payload)
 
-        print("sending: "+str(len(message)))
-        client_socket.sendto(message, (serverIP, UDP_PORT))
-        try:
-            data, server = client_socket.recvfrom(4096)
-            end = time.time()
-            elapsed = end - start
-            print("Received reply!")
-            print(len(data))
-        except socket.timeout:
-            print('REQUEST TIMED OUT')
+    start = time.time()
+    for i in range(0, len(no_frills_buffer)):
+        sock.send(no_frills_buffer[i])
+    
+    end = time.time() - start
+    print("Experiment ended")
+    print("Time taken:", end)
 
 # measure additional time taken for packet resending
 # this will just mass resend
@@ -47,7 +58,7 @@ def no_frills_udp_client():
 def packet_resending_udp_client(MTU=1472):
     serverIP = socket.gethostbyname(socket.gethostname())
     input_path = os.path.join('./data/', 'test.file')
-
+    
     with open(input_path, 'rb') as f:
         size = Path(input_path).stat().st_size
         total_packets = int(size/MTU) + 1
@@ -61,16 +72,13 @@ def packet_resending_udp_client(MTU=1472):
         # sequencing, this will be done on receiving side
         seq = 1
         while seq <= total_packets:
-            # payload = f.read(5)
-            payload = "WDFBBQ".encode()
+            payload = f.read(1472)
             packet = network.create_packet(s, seq, payload, total_packets)
-            sock.sendto(packet, (serverIP, 6789))
-            q.append(packet)
-            print("packet sent")
+            sock.send(packet)
+            q.append(packet) # add to double ended queue
             seq += 1
-        return
 
-        # re odering
+        # mass send but 
         tree = None
         pos = dict()
         arr = None
@@ -79,7 +87,7 @@ def packet_resending_udp_client(MTU=1472):
             packet = q.pop()
             seq, chk, pck, data = network.dessemble_packet(packet)
 
-            if (not tree):  # first time we init everything
+            if (not tree):  # cache packets first by constructing RBT
                 arr = [None]*(pck+1)
                 tree = rbt.RedBlackTree()
                 for i in range(1, pck+1):
@@ -177,6 +185,14 @@ time_stamp = list()
 last_ack_sent = -1
 in_transit = 0
 var_lock = threading.Lock()
+
+# send line: 
+# ack line
+# on start, mark the time
+# on receive we will mark the time, and sequence number as y and x axis
+# get end time
+# get diff between start and end, divide into timestamps, fit each packet time into 
+
 def go_back_N_sender(sock, total_packets, window_size, retransmission_time):
     global buffer
     global last_ack_sent
@@ -473,6 +489,11 @@ LL_LOCK = threading.Lock()
 LL_BUFFER = linkedlist.dLinkedList()
 WAITED = 0
 STOP_THREAD = False
+SEND_LIST_seq = list()
+SEND_LIST_time = list()
+ACK_LIST_seq = list()
+ACK_list_time = list()
+
 def ll_sender(sock, total_packets, threshold, timeout, a):
     global SLIDING_WINDOW
     global LL_LOCK
@@ -481,8 +502,10 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
     global LL_BUFFER
     global POINTER_ARR
     global STOP_THREAD
-    counter = 0
+    global SEND_LIST
 
+    counter = 0
+    
     while LL_NUM_ACK < total_packets:
 
         # greedy sending
@@ -496,9 +519,13 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
                 if (not node.sent):
                     try:
                         node.sent = True
-                        SLIDING_WINDOW[i] = [time.time(), 0, node] # start time, rtt, pointer
+                        sent_time = time.time()
+                        SLIDING_WINDOW[i] = [sent_time, 0, node] # start time, rtt, pointer
                         sock.send(node.data)
+                        SEND_LIST_seq.append(i)
+                        SEND_LIST_time.append(sent_time)
                         node = node.next
+
                     except Exception as e:
                         LL_NUM_ACK = total_packets
                         STOP_THREAD = True
@@ -508,16 +535,13 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
         LL_LOCK.release()
         counter += 1
         if (STOP_THREAD): break
-        # print(LL_BUFFER.length)
 
-        # check for timed out packets
-        # LL_LOCK.acquire()
-        # for k, v in SLIDING_WINDOW.items():
-        #     for k, v in SLIDING_WINDOW.items():
-        #         if(time.time() - SLIDING_WINDOW[k][0]) > 1.0:
-        #             SLIDING_WINDOW[k][0] = time.time() # reset time
-        #             sock.send(SLIDING_WINDOW[k][2].data)
-        # LL_LOCK.release()
+        LL_LOCK.acquire()
+        for k, v in SLIDING_WINDOW.items():
+            if(time.time() - SLIDING_WINDOW[k][0]) > 0.05:
+                SLIDING_WINDOW[k][0] = time.time() # reset time
+                sock.send(SLIDING_WINDOW[k][2].data)
+        LL_LOCK.release()
 
     print("All packets sent")
     # time.sleep(10)
@@ -530,6 +554,7 @@ def ll_receiver(sock, a):
     global LL_NUM_ACK
     global WAITED
     global STOP_THREAD
+    global ACK_LIST
 
     while True:
         LL_LOCK.acquire()  
@@ -540,6 +565,9 @@ def ll_receiver(sock, a):
             ack, seq = data[0], data[1]
             
             if (ack and seq in SLIDING_WINDOW):
+                ACK_LIST_seq.append(seq)
+                ACK_list_time.append(time.time())
+
                 if (seq == (LL_NUM_ACK + 1)): 
                     if (WAITED > 0):
                         LL_NUM_ACK += WAITED
@@ -579,7 +607,7 @@ def ll_udp_client():
 
         total_packets = int(size/1472) + 1
         POINTER_ARR = [None]*(total_packets + 1)
-
+        
         for i in range(0, total_packets):
             payload = f.read(1472)
             payload = network.create_packet(s, i, payload, total_packets)
@@ -623,8 +651,11 @@ def ll_udp_client():
         
         print("Experiment  complete")
         print("Experiment ", time.time()-start)
+        plt.scatter(SEND_LIST_seq, SEND_LIST_time)
+        plt.savefig("test.png")
         print("Resetting for 20 secs")
-    
+
+
 # https://granulate.io/understanding-congestion-control/
 WINDOW_SIZE = 8
 SSTHRESH = 0
@@ -821,6 +852,8 @@ def congestion_control():
     print(end)
     time.sleep(20)
 
+
+
 if __name__ == "__main__":
     # no_frills_udp_client()
     # varying_mtu_udp_client()
@@ -828,4 +861,4 @@ if __name__ == "__main__":
     # compress_text()
     # ll_udp_client()
     # selective_repeat_udp_client()
-    simple_ssl_udp_client()
+    ll_udp_client()
