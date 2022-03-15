@@ -176,25 +176,24 @@ def ll_udp_server():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', PORT))
     s = struct.Struct('!IHH')
-    a = struct.Struct('!II')
+    a = struct.Struct('!IIf')
     print("ll Server Started")
     received = set()
-    
+
     while True:
-        
         print("Status: awaiting experiment")
         try:
             data, addr = sock.recvfrom(1472)
             
             if (data):
-                init, total_packets = a.unpack(data)
+                init, total_packets, loss = a.unpack(data)
                 print("Status: received init from", addr)
                 sock.sendto("1".encode(), addr)
 
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
             print("Status: experiment started")
 
-            sock.settimeout(5.0)
+            sock.settimeout(4.0)
 
         except Exception as e:
             print(e)
@@ -202,12 +201,15 @@ def ll_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
+                # if (random.random() <= loss): continue
+
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-                ack_packet = a.pack(1, sequenceNum)
-                sock.sendto(ack_packet, addr)
                 received.add(sequenceNum)
+
+                ack_packet = a.pack(1, sequenceNum, 0)
+                sock.sendto(ack_packet, addr)
+                print(sequenceNum)
                 
-                # print(count)
                 if (len(received) == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
@@ -217,6 +219,9 @@ def ll_udp_server():
 
             except socket.timeout as e:
                 print("Status: have not received anything in 5 secs, ending experiment")
+                received = set()
+                count = 0
+                total_packets = 0   
                 sock.settimeout(3600)
                 break
 

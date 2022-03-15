@@ -4,7 +4,19 @@ class Node:
       self.next = None
       self.back = None
       self.sent = False
-      
+   
+   def set_sent(self):
+      self.sent = True
+   
+   def get_data(self):
+      return self.data
+
+   def get_next(self):
+      return self.next
+   
+   def was_sent(self):
+      return self.sent
+
 class dLinkedList:
    def __init__(self):
       self.head = Node(-1)

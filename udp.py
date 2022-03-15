@@ -505,69 +505,42 @@ def ll_sender(sock, total_packets, threshold, timeout, a):
     global SEND_LIST
 
     counter = 0
-    
-    while LL_NUM_ACK < total_packets:
-
-        # greedy sending
-        LL_LOCK.acquire()
-
-        while len(SLIDING_WINDOW) < threshold:
+    while (LL_NUM_ACK < total_packets):
+        # LL_LOCK.acquire()
+        if (len(SLIDING_WINDOW) < threshold):
             if (counter>0): LL_NUM_ACK += 1
             node = LL_BUFFER.get_start()
-            
             for i in range(LL_NUM_ACK, LL_NUM_ACK+threshold+1):
-                if (not node.sent):
+                if (not node.was_sent()):
                     try:
-                        node.sent = True
+                        node.set_sent()
                         sent_time = time.time()
                         SLIDING_WINDOW[i] = [sent_time, 0, node] # start time, rtt, pointer
-                        sock.send(node.data)
+                        sock.send(node.get_data())
                         SEND_LIST_seq.append(i)
                         SEND_LIST_time.append(sent_time)
-                        node = node.next
+                        node = node.get_next()
 
                     except Exception as e:
-                        LL_NUM_ACK = total_packets
                         STOP_THREAD = True
                         break
+            
             if (STOP_THREAD): break
+        # LL_LOCK.release()
 
-        LL_LOCK.release()
         counter += 1
         if (STOP_THREAD): break
 
-        LL_LOCK.acquire()
-        for k, v in SLIDING_WINDOW.items():
-            if(time.time() - SLIDING_WINDOW[k][0]) > 0.05:
-                SLIDING_WINDOW[k][0] = time.time() # reset time
-                sock.send(SLIDING_WINDOW[k][2].data)
-        LL_LOCK.release()
-
-    print("All packets sent")
-    # time.sleep(10)
-
-def ll_receiver(sock, a):
-    global SLIDING_WINDOW
-    global LL_LOCK
-    global LL_BUFFER
-    global POINTER_ARR
-    global LL_NUM_ACK
-    global WAITED
-    global STOP_THREAD
-    global ACK_LIST
-
-    while True:
-        LL_LOCK.acquire()  
-        while (len(SLIDING_WINDOW) > 0):
-
+        if (len(SLIDING_WINDOW) > 0):
             data, addr = sock.recvfrom(1472)
             data = a.unpack(data)
             ack, seq = data[0], data[1]
-            
-            if (ack and seq in SLIDING_WINDOW):
+
+            if (seq in SLIDING_WINDOW):
+                print("RECEIVED:",seq)
                 ACK_LIST_seq.append(seq)
                 ACK_list_time.append(time.time())
-
+                 
                 if (seq == (LL_NUM_ACK + 1)): 
                     if (WAITED > 0):
                         LL_NUM_ACK += WAITED
@@ -576,13 +549,62 @@ def ll_receiver(sock, a):
                         LL_NUM_ACK += 2
                 else: 
                     WAITED += 1
-
+                
                 del (SLIDING_WINDOW[seq])
                 LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
-            if (STOP_THREAD): 
-                break
-        LL_LOCK.release()  
+            else:
+                print("NOT RECEIVED:", seq)
+                for k,v in SLIDING_WINDOW.items():
+                    sequenceNum, checkSum, total_packets, data = network.dessemble_packet(v[2].data)
+                    if (sequenceNum == seq):
+                        print("ARE YOU FUCKING KIDDING ME!")
+                        print(type(sequenceNum), "VS", type(seq))
+                        print(seq in SLIDING_WINDOW)
+        # LL_LOCK.acquire()
+        # if (len(SLIDING_WINDOW) > 0):
+        #     for k, v in SLIDING_WINDOW.items():
+        #         sent_time, end_time, node = v
+        #         if ((time.time() - sent_time) > 0.05):
+        #             SLIDING_WINDOW[k] = [time.time(), 0, node]
+        #             sock.send(node.data)
+        # LL_LOCK.release()
+    print("HERE8")
+    print("All packets sent")
 
+def ll_receiver(sock, a, total_packets):
+    global SLIDING_WINDOW
+    global LL_LOCK
+    global LL_BUFFER
+    global POINTER_ARR
+    global LL_NUM_ACK
+    global WAITED
+    global STOP_THREAD
+    global ACK_LIST
+    
+    while (LL_NUM_ACK < total_packets):
+        if (len(SLIDING_WINDOW) > 0):
+            data, addr = sock.recvfrom(1472)
+            data = a.unpack(data)
+            ack, seq = data[0], data[1]
+
+            if (ack and seq in SLIDING_WINDOW):
+                ACK_LIST_seq.append(seq)
+                ACK_list_time.append(time.time())
+                LL_LOCK.acquire()  
+                if (seq == (LL_NUM_ACK + 1)): 
+                    if (WAITED > 0):
+                        LL_NUM_ACK += WAITED
+                        WAITED = 0
+                    else:
+                        LL_NUM_ACK += 2
+                else: 
+                    WAITED += 1
+                
+                del (SLIDING_WINDOW[seq])
+                LL_BUFFER.remove(POINTER_ARR[seq]) # remove pointer
+                LL_LOCK.release() 
+
+            if (STOP_THREAD): break
         if (STOP_THREAD): break
     print("Received all packets")
 
@@ -597,7 +619,7 @@ def ll_udp_client():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.connect((serverIP, PORT))
     s = struct.Struct('!IHH')
-    a = struct.Struct('!II')
+    a = struct.Struct('!IIf')
 
     window_threshold = 12
 
@@ -607,7 +629,8 @@ def ll_udp_client():
 
         total_packets = int(size/1472) + 1
         POINTER_ARR = [None]*(total_packets + 1)
-        
+        loss = 0.1
+
         for i in range(0, total_packets):
             payload = f.read(1472)
             payload = network.create_packet(s, i, payload, total_packets)
@@ -619,7 +642,7 @@ def ll_udp_client():
 
         print("Experiment Sending initial")
         init_rtt = time.time()
-        sock.send(a.pack(1, total_packets+1))
+        sock.send(a.pack(1, total_packets+1, loss))
         print("Experiment awaiting reply for flood to begin")
 
         TIMEOUT = 0
@@ -633,15 +656,15 @@ def ll_udp_client():
 
         sender_thread = threading.Thread(
             target=ll_sender, args=(sock, total_packets, window_threshold, TIMEOUT, a))
-        receiver_thread = threading.Thread(
-                target=ll_receiver, args=(sock, a))
+        # receiver_thread = threading.Thread(
+        #         target=ll_receiver, args=(sock, a, total_packets))
 
         try:
             start = time.time()
-            receiver_thread.start()
+            # receiver_thread.start()
             sender_thread.start()
 
-            receiver_thread.join()
+            # receiver_thread.join()
             sender_thread.join()
             print("Ending thread")
         except Exception as e:
@@ -649,11 +672,25 @@ def ll_udp_client():
             print(e)
             sock.close()
         
+        end = time.time()
+        diff = end-start
         print("Experiment  complete")
-        print("Experiment ", time.time()-start)
-        plt.scatter(SEND_LIST_seq, SEND_LIST_time)
-        plt.savefig("test.png")
-        print("Resetting for 20 secs")
+        print("Experiment ", diff)
+        # plt.scatter(SEND_LIST_seq, SEND_LIST_time)
+
+        # for i in range(0,len(SEND_LIST_time)):
+        #     SEND_LIST_time[i] = (end - SEND_LIST_time[i])*10
+        #     try:
+        #         ACK_list_time[i] = (end - ACK_list_time[i])*10
+        #     except:
+        #         continue
+        # plt.plot(SEND_LIST_time, SEND_LIST_seq)
+
+        plt.plot(ACK_list_time, ACK_LIST_seq)
+        plt.xlabel('x - axis')
+        plt.ylabel('y - axis')
+        plt.savefig("test2.png")
+        # print("Resetting for 20 secs")
 
 
 # https://granulate.io/understanding-congestion-control/
