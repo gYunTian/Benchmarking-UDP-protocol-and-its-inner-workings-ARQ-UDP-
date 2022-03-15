@@ -123,7 +123,7 @@ def varying_mtu_udp_scenario():
 
 
 def go_back_N_udp_server():
-    PORT = 7890
+    PORT = 8000
     serverIP = socket.gethostbyname(socket.gethostname())
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -150,6 +150,8 @@ def go_back_N_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
+                # if (random.random() <= 0.1): continue
+
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 count += 1
                 if (sequenceNum == previous_seq + 1):
@@ -171,8 +173,6 @@ def go_back_N_udp_server():
 
 def ll_udp_server():
     PORT = 7890
-    serverIP = socket.gethostbyname(socket.gethostname())
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', PORT))
     s = struct.Struct('!IHH')
@@ -192,19 +192,15 @@ def ll_udp_server():
 
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
             print("Status: experiment started")
-
-            sock.settimeout(2.0)
-
         except Exception as e:
             print(e)
 
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                if (random.random() <= loss): continue
+                # if (random.random() <= loss): continue
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 received.add(sequenceNum)
-
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
                 # print(len(received))
@@ -212,7 +208,6 @@ def ll_udp_server():
                 if (len(received) == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
-                    count = 0
                     total_packets = 0
                     break
 
@@ -332,6 +327,8 @@ def congestion_udp_server():
     sock.bind(('', PORT))
     s = struct.Struct('!IHH')
     a = struct.Struct('!IIf')
+    received = set()
+
     print("Congestion Server Started")
 
     while True:
@@ -357,16 +354,16 @@ def congestion_udp_server():
                 data, addr = sock.recvfrom(1500)
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 
-                if (network.calculate_checksum(data) != checkSum or random.random() <= lost_percent): 
-                    error_packet = a.pack(0, sequenceNum, 0)
-                    sock.sendto(error_packet, addr)
-                    continue
-                
-                   
+                # if (network.calculate_checksum(data) != checkSum or random.random() <= lost_percent): 
+                #     error_packet = a.pack(0, sequenceNum, 0)
+                #     sock.sendto(error_packet, addr)
+                #     continue
+
+                received.add(sequenceNum)
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
-                count += 1 
-                if (count%1000==0): print(count)
+
+                print(len(received))
                 if (count == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
@@ -385,7 +382,7 @@ if __name__ == "__main__":
     # go_back_N_udp_server()
     # selective_repeat_udp_server()
     # compressed_udp_server()
-    # congestion_udp_server()
-    ll_udp_server()
+    congestion_udp_server()
+    # ll_udp_server()
     # selective_repeat_udp_server()
     # base_udp_scenario()
