@@ -362,8 +362,8 @@ def congestion_udp_server():
                 received.add(sequenceNum)
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
-
-                print(len(received))
+                
+                # print(len(received))
                 if (count == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
@@ -372,6 +372,7 @@ def congestion_udp_server():
                     break
                 
             except socket.timeout as e:
+                print(len(received))
                 print("Status: have not received anything in 5 secs, ending experiment")
                 sock.settimeout(3600)
                 break

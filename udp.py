@@ -684,92 +684,92 @@ RANDOM_ERROR = 0
 congestion_lock = threading.Lock()
 # https://www.cs.cmu.edu/~srini/15-441/F07/project3/project3.pdf
 def congestion_receiver(sock, total_packets, a, congestion_buffer):
-    global WINDOW_SIZE # cwnd
-    global SSTHRESH # cap
-    global IN_TRANSIT
-    global LAST_ACK # ack
-    global AVG_RTT # mean
-    global ACKS_ARR # arr
-    global LOSS_EVENT # boolean
-    global MAX_RTT
-    global TIME_STAMP_ARR # 0 is for timeout checks, 1 is for RTT of that packet
-    global CONGESTION_AVOIDANCE
+    global WINDOW_SIZE, SSTHRESH, IN_TRANSIT, LAST_ACK, AVG_RTT, STOP_THREAD
+    global ACKS_ARR, LOSS_EVENT, MAX_RTT, TIME_STAMP_ARR, CONGESTION_AVOIDANCE # arr
+
+    print(SSTHRESH)
 
     ACKS_ARR = [0]*(total_packets+1)
-
     while (LAST_ACK + 1 < total_packets): # there are still packets yet to be sent
+        # print("STUCK1")
+        
         if (IN_TRANSIT > 0):  # if there are packets in transit
-            data, addr = sock.recvfrom(1472)
-            data = a.unpack(data)
-            ack, seq = data[0], data[1]
-
-            if (ack): # valid ack
+            # print("STUCK2")
+            r, _, _ = select.select([sock],[],[],0)
+            if (r):
+                # print("STUCK3")
+                data, addr = sock.recvfrom(1472)
+                data = a.unpack(data)
+                ack, seq = data[0], data[1]
                 ACKS_ARR[seq] += 1 # count num of acks received for a seq
-                TIME_STAMP_ARR[seq][1] = time.time() - TIME_STAMP_ARR[seq][0] # record RTT
-                print("RTT:",TIME_STAMP_ARR[seq][1])
 
-                AVG_RTT = (AVG_RTT+TIME_STAMP_ARR[seq][1])/(LAST_ACK+1) # 
-                print("AVG:",AVG_RTT)
+                if (ack): # valid ack
+                    # print("STUCK4")
+                    # print(len(received))
+                    TIME_STAMP_ARR[seq][1] = time.time() - TIME_STAMP_ARR[seq][0] # record RTT
+                    # print("RTT:",TIME_STAMP_ARR[seq][1])
+                    AVG_RTT = (AVG_RTT+TIME_STAMP_ARR[seq][1])/(LAST_ACK+1) # 
+                    # print("AVG:",AVG_RTT)
 
-                if (ACKS_ARR[seq] >= 3): # latest packet received had 3 acks
-                    LOSS_EVENT = True
-                    # assume all packets after seq is lost
-                    IN_TRANSIT = 0
-                    continue
-                
-                if (not CONGESTION_AVOIDANCE): WINDOW_SIZE += 2
-                if (WINDOW_SIZE >= SSTHRESH): CONGESTION_AVOIDANCE = True
-                
-                congestion_lock.acquire()
-                if (LAST_ACK + 1 == seq):
-                    LAST_ACK += 1
-                    IN_TRANSIT -= 1
-                else:
-                    IN_TRANSIT = 0
-                congestion_lock.release()
+                    # if (ACKS_ARR[seq] >= 3): # latest packet received had 3 acks
+                    #     LOSS_EVENT = True
+                    #     # assume all packets after seq is lost
+                    #     IN_TRANSIT = 0
+                    #     congestion_lock.release()
+                    #     continue
+                    congestion_lock.acquire()
+                    if (not CONGESTION_AVOIDANCE): WINDOW_SIZE += 2
+                    if (WINDOW_SIZE >= SSTHRESH): CONGESTION_AVOIDANCE = True
+                    if (LAST_ACK + 1 == seq):
+                        LAST_ACK += 1
+                        IN_TRANSIT -= 1
+                    else: IN_TRANSIT = 0
 
-            else: # faulty packet
-                congestion_lock.acquire()
-                # LOSS_EVENT = true
-                sock.send(congestion_buffer[seq])  # resend packet in current index
-                TIME_STAMP_ARR[seq][0] = time.time()
-                congestion_lock.release()
+                    congestion_lock.release()
+
+                else: # faulty packet
+                    # print("STUCK5")
+                    # LOSS_EVENT = true
+                    sock.send(congestion_buffer[seq])  # resend packet in current index
+                    TIME_STAMP_ARR[seq][0] = time.time()
+    print("All packets received")
+    STOP_THREAD = True
 
 def congestion_sender(sock, total_packets, retransmission_time, congestion_buffer):
-    global WINDOW_SIZE
-    global LAST_ACK
-    global TIME_STAMP_ARR
-    global RANDOM_ERROR
-    global IN_TRANSIT
-    global CONGESTION_AVOIDANCE
-    global AVG_RTT
+    global WINDOW_SIZE, LAST_ACK, TIME_STAMP_ARR, RANDOM_ERROR
+    global IN_TRANSIT, CONGESTION_AVOIDANCE, AVG_RTT, STOP_THREAD
 
     TIME_STAMP_ARR = [[None,None] for i in range(0,total_packets)]
-    times = 1
+    # times = 1
 
+    sent_packets = 0
     while (LAST_ACK + 1 < total_packets): # still have packets to send
+        # print("STUCK6")
+        congestion_lock.acquire()
         packetCount = LAST_ACK + IN_TRANSIT + 1
-        
-        # if (random.random() <= RANDOM_ERROR): # simulate timeout and send
-        #     times = random.randint(2,3)
-        
+        congestion_lock.release()
+        # if (random.random() <= RANDOM_ERROR): times = random.randint(2,3)
+
         if (IN_TRANSIT < WINDOW_SIZE and packetCount < total_packets):
+            # print("STUCK7")
             # for i in (0,times):
             sock.send(congestion_buffer[packetCount])  # send packet in current index
             TIME_STAMP_ARR[packetCount][0] = time.time()  # start timer
-            congestion_lock.acquire()
             IN_TRANSIT += 1  # increment num packets sent
-            congestion_lock.release()
         
-        # if timeout resend
-        if (IN_TRANSIT > 0 and time.time() - TIME_STAMP_ARR[LAST_ACK + 1][0] > max(retransmission_time, AVG_RTT)): 
-            congestion_lock.acquire()
-            IN_TRANSIT = 0
-            congestion_lock.release()
-            CONGESTION_AVOIDANCE = True
-        
-        
+        # if latest rtt took longer than avg
+        # if (IN_TRANSIT > 0):
+            # print("STUCK8")
+            # congestion_lock.acquire()
+            # if (time.time() - TIME_STAMP_ARR[packetCount][0] > max(retransmission_time, AVG_RTT)):
+            #     print("High latency")
+
+            #IN_TRANSIT = 0
+            # CONGESTION_AVOIDANCE = True
+            # congestion_lock.release()
+
     print("Experiment congestion control sent all packets")
+    STOP_THREAD = True
 
 def handler():
     global CONGESTION_AVOIDANCE
@@ -777,6 +777,7 @@ def handler():
     global WINDOW_SIZE
     global AVG_RTT
     global LAST_ACK
+    global STOP_THREAD
 
     while True:
         if (CONGESTION_AVOIDANCE):
@@ -784,12 +785,15 @@ def handler():
             congestion_lock.acquire()
             WINDOW_SIZE += 1
             congestion_lock.release()
-            
+
         if (LOSS_EVENT):
             congestion_lock.acquire()
             WINDOW_SIZE = max(0.5*WINDOW_SIZE, 2)
             LOSS_EVENT = False
             congestion_lock.release()
+        
+        if STOP_THREAD:
+            break
 
 def congestion_control():
     global SSTHRESH
@@ -804,12 +808,12 @@ def congestion_control():
     s = struct.Struct('!IHH')
     a = struct.Struct('!IIf')
     congestion_buffer = list()
-    
+
     print("Experiment congestion control started")
     with open(input_path, 'rb') as f:
         size = Path(input_path).stat().st_size
         SSTHRESH = int((size/1024)/1.5)+1
-        
+
         total_packets = int(size/1472) + 1
         for i in range(0, total_packets + 1):
             payload = f.read(1472)
@@ -828,7 +832,7 @@ def congestion_control():
             TIMEOUT = max(init_rtt+init_rtt+0.05, TIMEOUT)
             break
         # timeout heuristic: 2*RTT + 1*processing_time
-        
+
         print("Experiment received acknowledgement, experiment started")
         receiver_thread = threading.Thread(
             target=congestion_receiver, args=(sock, total_packets, a, congestion_buffer))
@@ -845,11 +849,12 @@ def congestion_control():
             receiver_thread.join()
             sender_thread.join()
             handler_thread.join()
+            end = time.time() - start
+            print(end)
         except Exception as e:
             print("Error in main")
             print(e)
             sock.close()
-        
         end = time.time() - start
     print("Experiment over")
     print(end)

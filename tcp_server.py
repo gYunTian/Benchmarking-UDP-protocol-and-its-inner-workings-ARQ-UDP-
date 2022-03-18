@@ -1,6 +1,6 @@
 import socket, time, random
 from socket import SHUT_RDWR
-
+from utils import network
 
 def base_tcp():
   PORT = 50000
@@ -14,22 +14,33 @@ def base_tcp():
       conn, addr = s.accept()
       # s.settimeout(5.0)   
       print(f"Connected by {addr}")
+      received = set()
 
       try:
         count = 0
         total_packets = 21740
+        start = time.time()
         while True:
           try:
-            if (random.random() > 0.9): continue
+            if (random.random() > 0.9): 
+              # print("Skipped")
+              continue
+            
             data = conn.recv(1500)
+            sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+            received.add(sequenceNum)
+            
             count += 1
-            if (count == 21740):
+            # print(count)
+            print(len(received))
+            if (len(received) == 21740):
                 print("Status: all packets received")
                 count = 0
                 total_packets = 0
                 break
           except Exception as e:
-            print(e)
+            print(len(received))
+            print("ERROR:",e)
       
       finally:
         print("Status: closing conn")
