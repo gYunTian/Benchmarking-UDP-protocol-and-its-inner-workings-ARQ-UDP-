@@ -1,55 +1,69 @@
-import socket, time, random
+import socket, time, random, os
+import sys
 from socket import SHUT_RDWR
 from utils import network
+from twisted.internet import reactor, protocol
 
-def base_tcp():
+def base_python_tcp():
   PORT = 50000
+  total_packets = 21740
 
   print("TCP server up and running")
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind(("", PORT))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
     s.listen(1)
-  
+
     while True:
-      conn, addr = s.accept()
-      # s.settimeout(5.0)   
-      print(f"Connected by {addr}")
-      received = set()
-
       try:
+        conn, addr = s.accept()
         count = 0
-        total_packets = 21740
-        start = time.time()
-        while True:
-          try:
-            if (random.random() > 0.9): 
-              # print("Skipped")
-              continue
-            
-            data = conn.recv(1500)
-            sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-            received.add(sequenceNum)
-            
-            count += 1
-            # print(count)
-            print(len(received))
-            if (len(received) == 21740):
-                print("Status: all packets received")
-                count = 0
-                total_packets = 0
-                break
-          except Exception as e:
-            print(len(received))
-            print("ERROR:",e)
-      
-      finally:
-        print("Status: closing conn")
-        conn.shutdown(SHUT_RDWR)
-        conn.close()
-        
-      
-        
 
+        while True:
+            data = conn.recv(10000000)
+            conn.send("1".encode())
+
+            count += 1
+            if (count == total_packets):
+                count = 0
+                conn.shutdown(SHUT_RDWR)
+                conn.close()
+                break
+              
+      except KeyboardInterrupt:
+            sys.exit()
+  
+class Echo(protocol.Protocol):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+        self.total_packets = 21740
+
+    def connectionMade(self):
+      self._peer = self.transport.getPeer()
+      self.transport.getHandle().setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 21740*1472)
+      print("Connected by",self._peer)
+
+    def dataReceived(self, data):
+        self.count += 1
+        self.transport.write(data)
+        print(self.count)
+        if (self.total_packets == self.count): 
+          self.count = 0
+          print("All packets received")
+        
+    def connectionLost(self, reason):
+        print("connection lost")
+
+def main():
+    print("Server started")
+    factory = protocol.ServerFactory()
+    factory.protocol = Echo
+    reactor.listenTCP(8000, factory)
+    reactor.run()
+
+# this only runs if the module was *not* imported
 if __name__ == "__main__":
-  base_tcp()
+    base_python_tcp()
+
   

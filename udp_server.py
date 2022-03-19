@@ -1,6 +1,6 @@
 from timeit import default_timer as timer
-import socket, time, struct, threading, logging, random
-from utils import network
+import socket, time, struct, threading, logging, random, select
+from utils import network, rbt
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S',
@@ -23,30 +23,95 @@ def base_udp_scenario():
             count += 1
             
             if (count == total_packets): 
-                print("Status: all packets received, ending experiment")
-                sock.settimeout(3600)
+                #print("Status: all packets received, ending experiment")
+                # sock.settimeout(3600)
                 count = 0
                 total_packets = 0
-                break
             
         except socket.timeout as e:
             print("Status: have not received anything in 5 secs, ending experiment")
             sock.settimeout(3600)
-            break
     
 def reodering_udp_scenario():
     UDP_PORT = 6789
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', UDP_PORT))
     print("Reodering server up")
+    a = struct.Struct('!II')    
     while True:
-        data, addr = sock.recvfrom(1472)
-        print("received message", len(data))
+        pos = dict() # get pointer of seq to node
+        tree = rbt.RedBlackTree() # store all seq in balanced tree
+        print("Status: awaiting experiment")
+        data, addr = sock.recvfrom(1500)
+        
+        if (data): # received total num packets, set up RBT to track unreceived packets
+            try:
+                init, total_packets = a.unpack(data)
+                arr = [None]*(total_packets)
+                for i in range(0,total_packets):
+                    node = tree.insert(i)
+                    pos[i] = node
+                
+                # arr[seq] = data
+                print("Status: received init from", addr)
+                sock.sendto("1".encode(), addr)
+            except:
+                continue
 
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1500)
+        print("Status: experiment started")
+        count = 0
+        times = 0
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(1500)
+                if (random.random() < 0.1): continue
+                
+                seq, checkSum, total_packets, data = network.dessemble_packet(data)
+
+                if pos[seq]: # ack by deleting from rbt
+                    node = pos[seq]
+                    pos[seq] = None
+                    tree.delete_obj(node)
+                    ack_packet = a.pack(1, seq)
+                    sock.sendto(ack_packet, addr)
+                    count += 1
+
+                    curr_min = tree.minimum()
+                    if (curr_min):
+                        curr_min = curr_min.item
+                        #print(curr_min)
+                        if (seq > curr_min): times += 1
+                    
+                    # if (curr_min%100==0):print(curr_min)
+
+                if (times >= 10):
+                    times = 0
+                    ack_packet = a.pack(2, seq)
+                    sock.sendto(ack_packet, addr)
+                
+                # need to decide when to check which packet not received
+                # and need rbt to loop through all
+                if (count == total_packets): 
+                    print("Status: all packets received, ending experiment")
+                    sock.settimeout(3600)
+                    count = 0
+                    total_packets = 0
+                    break
+                
+            except socket.timeout as e:
+                print("Status: have not received anything in 5 secs, ending experiment")
+                sock.settimeout(3600)
+                break
+        
+        r, _, _ = select.select([sock],[],[],0)
+        if (r):
+            data, addr = sock.recvfrom(1500)
+            continue
+        print("Resetting")
 
 received_count = 0
-
-
 def receiver(sock, send_mtu):
     global received_count
     global flag
@@ -62,9 +127,6 @@ def receiver(sock, send_mtu):
             flag = True
             break
 
-# Do locally
-# do on cloud
-
 
 def varying_mtu_udp_scenario():
     global received_count
@@ -75,7 +137,7 @@ def varying_mtu_udp_scenario():
     a = struct.Struct('!dd')
     s = struct.Struct('!II')
     TIMEOUT = 5
-
+    
     print("Varying mtu server up")
     mtu = None
 
@@ -106,20 +168,20 @@ def varying_mtu_udp_scenario():
         rtt = end - start
         percent = round((received_count/total_packets)*100, 5)
         time = round(rtt-TIMEOUT-2, 5)
-        print("Total % packets received:", percent, " - received:",
-              received_count, "| total:", total_packets)
-        print("Total time:", time)
-        print("Status: experiment complete - ", send_mtu)
+        # print("Total % packets received:", percent, " - received:",
+        #       received_count, "| total:", total_packets)
+        # print("Total time:", time)
+        # print("Status: experiment complete - ", send_mtu)
 
         end_packet = a.pack(time, percent)
-        print(a.unpack(end_packet))
+        # print(a.unpack(end_packet))
         sock.sendto(end_packet, addr)
 
         logging.info('serverIP=%s|RTT=%s|received=%s|total=%s|percent=%s', serverIP, round(rtt-TIMEOUT, 5), received_count, total_packets,
                      round((received_count/total_packets)*100, 5))
         received_count = 0
 
-    sock.close()
+    # sock.close()
 
 
 def go_back_N_udp_server():
@@ -150,14 +212,15 @@ def go_back_N_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                # if (random.random() <= 0.1): continue
+                if (random.random() < 0.1): continue
+                # if (random.random() > 0.9): continue
 
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-                count += 1
                 if (sequenceNum == previous_seq + 1):
                     ack_packet = a.pack(1, sequenceNum)
                     sock.sendto(ack_packet, addr)
                     previous_seq = sequenceNum
+                    count += 1
 
                 if (count == total_packets): 
                     print("Status: all packets received, ending experiment")
@@ -198,19 +261,20 @@ def ll_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                # if (random.random() <= loss): continue
+                if (random.random() < 0.1): continue
+                
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 received.add(sequenceNum)
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
-                # print(len(received))
-
+                #print(len(received))
+                
                 if (len(received) == total_packets): 
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
                     total_packets = 0
                     break
-
+                
             except socket.timeout as e:
                 print(len(received))
                 print("Status: have not received anything in 5 secs, ending experiment")
@@ -245,16 +309,18 @@ def selective_repeat_udp_server():
 
         count = 0
         maxSeqNum = 0
-        sock.settimeout(5.0)
+        sock.settimeout(10.0)
         
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
+                if (random.random() > 0.9): continue
+
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 count += 1
                 ack_packet = a.pack(1, sequenceNum)
                 sock.sendto(ack_packet, addr)
-                print(count)
+                # print(count)
                 # if (count%1000==0): print(count)
 
                 if (count == (total_packets+1)): 
@@ -294,25 +360,26 @@ def compressed_udp_server():
         count = 0
         sock.settimeout(5.0)
         received = list()
+        count = 0
 
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                # sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-                #received.append(zlib.decompress(data))
-                received.append(data)
-                count += 1
+                # received.append(count)
+                # count += 1
+                data = zlib.decompress(data)
+                sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+                if (checkSum == network.calculate_checksum(data)): received.append(sequenceNum)
                 
-                if (count >= total_packets):
+                if (len(received) >= total_packets):
                     sock.sendto('1'.encode(), addr)
                     print("Status: experiment ended")
                 
             except Exception as e:
+                print("ERROR:",e)
+                print("RECEIVED:",len(received))
                 sock.sendto('1'.encode(), addr)
                 print("Status: experiment ended")
-                print("Count:",count)
-                print("Total:",total_packets)
-                print(e)
                 break
         break
     
@@ -322,7 +389,7 @@ def compressed_udp_server():
 def congestion_udp_server():
     PORT = 7890
     serverIP = socket.gethostbyname(socket.gethostname())
-
+    
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('', PORT))
     s = struct.Struct('!IHH')
@@ -353,21 +420,29 @@ def congestion_udp_server():
             try:
                 data, addr = sock.recvfrom(1500)
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-                
-                # if (network.calculate_checksum(data) != checkSum or random.random() <= lost_percent): 
-                #     error_packet = a.pack(0, sequenceNum, 0)
-                #     sock.sendto(error_packet, addr)
+                # random effect
+                # totally lost, random
+                # take longer
+                # sent multiple times
+                # if (network.calculate_checksum(data) != checkSum or random.random() < 0.1):
+                #     if (random.randint(1, 2) == 1):
+                #         continue
+                #     else:
+                #         error_packet = a.pack(0, sequenceNum, 0)
+                #         sock.sendto(error_packet, addr)
                 #     continue
-
+                
                 received.add(sequenceNum)
+                # print(len(received))
                 ack_packet = a.pack(1, sequenceNum, 0)
                 sock.sendto(ack_packet, addr)
                 
                 # print(len(received))
-                if (count == total_packets): 
+                if (len(received) == (total_packets - 1)): 
+                    print(len(received))
                     print("Status: all packets received, ending experiment")
                     sock.settimeout(3600)
-                    count = 0
+                    received = set()
                     total_packets = 0
                     break
                 
@@ -387,3 +462,5 @@ if __name__ == "__main__":
     # ll_udp_server()
     # selective_repeat_udp_server()
     # base_udp_scenario()
+    # python udp_server.py
+    # python udp.py

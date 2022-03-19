@@ -16,12 +16,12 @@ class Node():
 
 class RedBlackTree():
     def __init__(self):
-        self.TNULL = Node(0)
+        self.TNULL = Node(-1)
         self.TNULL.color = 0
         self.TNULL.left = None
         self.TNULL.right = None
         self.root = self.TNULL
-        self.size = 1
+        self.size = 0
 
     # Preorder
     def pre_order_helper(self, node):
@@ -119,6 +119,7 @@ class RedBlackTree():
         y = z     
         self.size -= 1
         y_original_color = y.color
+
         if z.left == self.TNULL:
             x = z.right
             self.__rb_transplant(z, z.right)
@@ -250,13 +251,14 @@ class RedBlackTree():
     def searchTree(self, k):
         return self.search_tree_helper(self.root, k)
 
-    def minimum(self):
-        print("HERE")
-        node = self.root
-        while node.left != self.TNULL:
-            node = node.left
-        print(node.item)
-        return node
+    def minimum(self, node=None):
+        if (not node):
+            node = self.root
+        if (node.left):
+            while node.left != self.TNULL:
+                node = node.left
+            return node
+        return False
 
     def maximum(self, node):
         while node.right != self.TNULL:
@@ -366,21 +368,21 @@ class RedBlackTree():
         self.__print_helper(self.root, "", True)
 
 
-# if __name__ == "__main__":
-#     bst = RedBlackTree()
+if __name__ == "__main__":
+    bst = RedBlackTree()
 
-     # starttime = timeit.default_timer()
+    starttime = timeit.default_timer()
 
-#     for i in range(1,101):
-#       node = bst.insert(i)
-    # print(bst.size)
+    for i in range(1,101):
+      node = bst.insert(i)
+    print(bst.size)
 
-    # for i in range(1,101):
-    #   bst.delete_node(i)
-    # bst.delete_obj(node)
-    # node = bst.minimum()
-    # print(node.item)
+    for i in range(1,101):
+      bst.delete_node(i)
+    bst.delete_obj(node)
+    node = bst.minimum()
+    print(node.item)
 
-    # print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
-    # print(bst.size)
-    # bst.print_tree()
+    print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
+    print(bst.size)
+    bst.print_tree()

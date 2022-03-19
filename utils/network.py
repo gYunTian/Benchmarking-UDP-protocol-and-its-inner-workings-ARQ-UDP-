@@ -27,7 +27,7 @@ def create_packet(s, seq, payload, total_packets):
     header = s.pack(seq, checksum, total_packets)
     return (header + payload)
 
-def dessemble_packet(packet):
+def dessemble_packet(packet, check_sum=False):
     header = struct.unpack('!IHH', packet[0:8])
     sequenceNum, checkSum, total_packets, data = header[0], header[1], header[2], packet[8:]
     return sequenceNum, checkSum, total_packets, data
