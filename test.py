@@ -2,7 +2,7 @@
         # curr = LAST_ACK + IN_TRANSIT + 1
         # timer = time.time()
         # heur = AVG_RTT+AVG_RTT+AVG_RTT+0.01
-
+        
         # # congestion_lock.acquire()   
         # for idx in range(LAST_ACK + 1, curr):
         #     try:

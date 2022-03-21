@@ -401,14 +401,14 @@ def congestion_udp_server():
     while True:
         try:    
             print("Status: awaiting experiment")
-            data, addr = sock.recvfrom(1472)
+            data, addr = sock.recvfrom(1500)
             
             if (data):
                 init, total_packets, lost_percent = a.unpack(data)
                 print("Status: received init from", addr)
                 sock.sendto("1".encode(), addr)
             
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1500)
             print("Status: experiment started")
             
             count = 0
@@ -424,23 +424,31 @@ def congestion_udp_server():
                 # totally lost, random
                 # take longer
                 # sent multiple times
-                # if (network.calculate_checksum(data) != checkSum or random.random() < 0.1):
-                #     if (random.randint(1, 2) == 1):
-                #         continue
-                #     else:
-                #         error_packet = a.pack(0, sequenceNum, 0)
-                #         sock.sendto(error_packet, addr)
-                #     continue
-                
-                received.add(sequenceNum)
-                # print(len(received))
-                ack_packet = a.pack(1, sequenceNum, 0)
-                sock.sendto(ack_packet, addr)
-                
-                # print(len(received))
+                if (network.calculate_checksum(data) != checkSum or random.random() < 0.5):
+                    type = random.randint(1, 3)
+                    if (type == 1):
+                        continue
+                    elif (type == 2):
+                        error_packet = a.pack(0, sequenceNum, 0)
+                        sock.sendto(error_packet, addr)
+                    else:
+                        received.add(sequenceNum)
+                        ack_packet = a.pack(1, sequenceNum, 0)
+                        sock.sendto(ack_packet, addr)
+                        sock.sendto(ack_packet, addr)
+                        sock.sendto(ack_packet, addr)
+                else:
+                    received.add(sequenceNum)
+                    # print(len(received))
+                    ack_packet = a.pack(1, sequenceNum, 0)
+                    sock.sendto(ack_packet, addr)
+                    
+                print(len(received))
                 if (len(received) == (total_packets - 1)): 
                     print(len(received))
                     print("Status: all packets received, ending experiment")
+                    ack_packet = a.pack(3, sequenceNum, 0)
+                    sock.sendto(ack_packet, addr)
                     sock.settimeout(3600)
                     received = set()
                     total_packets = 0
@@ -451,6 +459,7 @@ def congestion_udp_server():
                 print("Status: have not received anything in 5 secs, ending experiment")
                 sock.settimeout(3600)
                 break
+        break
 
 if __name__ == "__main__":
     # reodering_udp_scenario()
