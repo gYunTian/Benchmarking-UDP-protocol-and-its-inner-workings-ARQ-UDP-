@@ -395,6 +395,7 @@ def congestion_udp_server():
     s = struct.Struct('!IHH')
     a = struct.Struct('!IIf')
     received = set()
+    min_received = None
 
     print("Congestion Server Started")
 
@@ -412,7 +413,7 @@ def congestion_udp_server():
             print("Status: experiment started")
             
             count = 0
-            sock.settimeout(5.0)
+            sock.settimeout(3600)
         except Exception as e:
             print(e)
 
@@ -420,11 +421,12 @@ def congestion_udp_server():
             try:
                 data, addr = sock.recvfrom(1500)
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
+
                 # random effect
                 # totally lost, random
                 # take longer
                 # sent multiple times
-                if (network.calculate_checksum(data) != checkSum or random.random() < 0.5):
+                if (network.calculate_checksum(data) != checkSum or random.random() < 0.1):
                     type = random.randint(1, 3)
                     if (type == 1):
                         continue
@@ -438,8 +440,8 @@ def congestion_udp_server():
                         sock.sendto(ack_packet, addr)
                         sock.sendto(ack_packet, addr)
                 else:
-                    received.add(sequenceNum)
-                    # print(len(received))
+                    received.add(int(sequenceNum))
+                    print("RECEIVED:",sequenceNum)
                     ack_packet = a.pack(1, sequenceNum, 0)
                     sock.sendto(ack_packet, addr)
                     
@@ -448,6 +450,8 @@ def congestion_udp_server():
                     print(len(received))
                     print("Status: all packets received, ending experiment")
                     ack_packet = a.pack(3, sequenceNum, 0)
+                    sock.sendto(ack_packet, addr)
+                    sock.sendto(ack_packet, addr)
                     sock.sendto(ack_packet, addr)
                     sock.settimeout(3600)
                     received = set()

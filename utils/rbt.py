@@ -368,21 +368,21 @@ class RedBlackTree():
         self.__print_helper(self.root, "", True)
 
 
-if __name__ == "__main__":
-    bst = RedBlackTree()
+# if __name__ == "__main__":
+#     bst = RedBlackTree()
 
-    starttime = timeit.default_timer()
+#     starttime = timeit.default_timer()
 
-    for i in range(1,101):
-      node = bst.insert(i)
-    print(bst.size)
+#     for i in range(1,101):
+#       node = bst.insert(i)
+#     print(bst.size)
 
-    for i in range(1,101):
-      bst.delete_node(i)
-    bst.delete_obj(node)
-    node = bst.minimum()
-    print(node.item)
+#     for i in range(1,101):
+#       bst.delete_node(i)
+#     bst.delete_obj(node)
+#     node = bst.minimum()
+#     print(node.item)
 
-    print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
-    print(bst.size)
-    bst.print_tree()
+#     print("Preprocessing took :", timeit.default_timer() - starttime, " seconds")
+#     print(bst.size)
+#     bst.print_tree()

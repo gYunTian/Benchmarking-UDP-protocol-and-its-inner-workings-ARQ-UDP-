@@ -1,11 +1,9 @@
-from cProfile import label
 import socket, sys, time, os, struct, timeit, random, threading, select
 from typing import List
 from utils import rbt, network
 from collections import deque
 from pathlib import Path
 from matplotlib import pyplot as plt
-import numpy as np
 import statistics as stat
 
 # class based implementation: https://stackoverflow.com/questions/67931356/getting-connection-reset-error-on-closing-a-client-in-udp-sockets
@@ -900,85 +898,95 @@ WINDOW_SIZE_LIST = list()
 WINDOW_SIZE_TIME = list()
 
 SENT_TICK = False
+RECEIVED_SET = set()
+
+RESEND = None
+RESEND_COUNTER = 0
 
 congestion_lock = threading.Lock()
 # https://www.cs.cmu.edu/~srini/15-441/F07/project3/project3.pdf
 def congestion_receiver(sock, total_packets, a, congestion_buffer):
     global WINDOW_SIZE, SSTHRESH, IN_TRANSIT, LAST_ACK, AVG_RTT, STOP_THREAD
     global ACKS_ARR, LOSS_EVENT, MAX_RTT, TIME_STAMP_ARR, CONGESTION_AVOIDANCE # arr
-    global WINDOW_SIZE_LIST, SENT_TICK, congestion_lock
+    global WINDOW_SIZE_LIST, SENT_TICK, congestion_lock, RECEIVED_SET, RESEND, RESEND_COUNTER
     waited = 0
 
     ACKS_ARR = [0]*(total_packets+1)
-    while (LAST_ACK + 1 < total_packets and not STOP_THREAD): # there are still packets yet to be sent
-        if (IN_TRANSIT > 0 and not STOP_THREAD):  # if there are packets in transit
-            r, _, _ = select.select([sock],[],[],0)
-            if (r):
+    while (len(RECEIVED_SET) < total_packets and not STOP_THREAD): # there are still packets yet to be 
+        #if (IN_TRANSIT > 0):  # if there are packets in transit
                 data, addr = sock.recvfrom(1500)
                 data = a.unpack(data)
                 ack, seq = data[0], data[1]
+                ACKS_ARR[seq] += 1
+
                 if (ack == 3):
                     STOP_THREAD = True
                     break
-                
-                ACKS_ARR[seq] += 1 # count num of acks received for a seq
-
                 if (ACKS_ARR[seq] >= 3): # latest packet received had 3 acks
                     LOSS_EVENT = True # assume all packets after seq is lost
+                    congestion_lock.acquire()
                     IN_TRANSIT = 0
+                    congestion_lock.release()
                     continue
-                
                 if (ack == 1  and ACKS_ARR[seq] == 1): # valid ack
                     SENT_TICK = True
                     TIME_STAMP_ARR[seq][1] = time.time() - TIME_STAMP_ARR[seq][0] # record RTT
+                    congestion_lock.acquire()
                     AVG_RTT = (AVG_RTT+TIME_STAMP_ARR[seq][1])/(LAST_ACK+1)
-                    heur = AVG_RTT+AVG_RTT+AVG_RTT+0.01
+                    congestion_lock.release()
+                    heur = AVG_RTT+AVG_RTT+0.01
                     
                     if (TIME_STAMP_ARR[seq][1] > heur): CONGESTION_AVOIDANCE = True
                     else: CONGESTION_AVOIDANCE = False
-                    # print("RECEIVED:",seq)
-                    IN_TRANSIT -= 1
-
-                    # print (LAST_ACK)
                     congestion_lock.acquire()
-                    if (LAST_ACK + 1 == seq):
+                    IN_TRANSIT -= 1
+                    congestion_lock.release()
+                    RECEIVED_SET.add(seq)
+
+                    print ("ACK:",LAST_ACK)
+                    congestion_lock.acquire()
+                    if ((LAST_ACK + 1) == seq):
                         LAST_ACK += 1
                         LAST_ACK += waited
                         waited = 0
                     else: 
                         waited += 1
                         IN_TRANSIT = 0
-                    
                     congestion_lock.release()
-
                 if (ack == 0):
                     starter = time.time()
                     sock.send(congestion_buffer[seq])  # resend packet in current index
-                    SENT_TICK = True
                     TIME_STAMP_ARR[seq][0] = starter
+                    SENT_TICK = True
                     LOSS_EVENT = True
                     WINDOW_SIZE_LIST.append(WINDOW_SIZE)
                     WINDOW_SIZE_TIME.append(starter) 
-                
+    
     print("All packets received")
     STOP_THREAD = True
 
 def congestion_sender(sock, total_packets, retransmission_time, congestion_buffer):
     global WINDOW_SIZE, LAST_ACK, TIME_STAMP_ARR, RANDOM_ERROR, CONGESTION_AVOIDANCE
-    global IN_TRANSIT, AVG_RTT, STOP_THREAD, SENT_TICK, congestion_lock
+    global IN_TRANSIT, AVG_RTT, STOP_THREAD, SENT_TICK, RECEIVED_SET
 
     TIME_STAMP_ARR = [[None,None] for i in range(0,total_packets)]
     
-    while (LAST_ACK + 1 < total_packets and not STOP_THREAD): # still have packets to send
+    while (len(RECEIVED_SET) < total_packets and not STOP_THREAD): # still have packets to send
         congestion_lock.acquire()
         packetCount = LAST_ACK + IN_TRANSIT + 1
+        local_in_transit = IN_TRANSIT
+        local_window = WINDOW_SIZE
         congestion_lock.release()
 
-        while (IN_TRANSIT < WINDOW_SIZE and packetCount < total_packets and not STOP_THREAD):
+        while (local_in_transit < local_window and packetCount < total_packets and not STOP_THREAD):
             sock.send(congestion_buffer[packetCount])  # send packet in current index
             starter = time.time()
             TIME_STAMP_ARR[packetCount][0] = starter  # start timer
+
+            congestion_lock.acquire()
             IN_TRANSIT += 1  # increment num packets sent
+            congestion_lock.release()
+            
             packetCount += 1
             WINDOW_SIZE_LIST.append(WINDOW_SIZE)
             WINDOW_SIZE_TIME.append(starter) 
@@ -986,7 +994,7 @@ def congestion_sender(sock, total_packets, retransmission_time, congestion_buffe
 
         if (IN_TRANSIT > 0):
             found = False
-            heur = AVG_RTT+AVG_RTT+AVG_RTT+0.01
+            heur = AVG_RTT+AVG_RTT+0.01
             count = 0
             
             congestion_lock.acquire()
@@ -995,22 +1003,29 @@ def congestion_sender(sock, total_packets, retransmission_time, congestion_buffe
             congestion_lock.release()
             stopper = int((end-start)/2)
             
-            for idx in range(start, end):
-                if (STOP_THREAD): break
+            if (not TIME_STAMP_ARR[start][1] and len(RECEIVED_SET) > (start)*2):
+                sock.send(congestion_buffer[start])
+                TIME_STAMP_ARR[start][0] = time.time()
+
+            for idx in range(start+1, end):
+                # if (STOP_THREAD): break
                 try:
-                    if (not TIME_STAMP_ARR[idx][1] and (time.time() - TIME_STAMP_ARR[idx][0]) > heur): # not ack and timed out
+                    if (not TIME_STAMP_ARR[idx][1] and (time.time() - TIME_STAMP_ARR[idx][0]) > min(0.05, heur)): # not ack and timed out
                         print("RESEND:",idx)
                         sock.send(congestion_buffer[idx])
+
                         TIME_STAMP_ARR[idx][0] = time.time()
                         CONGESTION_AVOIDANCE = True
                         found = True
-                        # break
-                    else:
-                        count += 1
-                        if (count == max(stopper,5)): 
-                            break
-                except:
+                    # else:
+                    #     count += 1
+                    #     if (count == max(stopper,5)): 
+                    #         break
+                except Exception as e:
+                    print(TIME_STAMP_ARR[idx][0])
+                    print(e)
                     pass
+            
             if (not found):
                 congestion_lock.acquire()
                 LAST_ACK += stopper
@@ -1039,7 +1054,7 @@ def handler():
                 SENT_TICK = False
             
         if (LOSS_EVENT):
-            WINDOW_SIZE = max(0.5*WINDOW_SIZE, 10)
+            WINDOW_SIZE = max(int(0.5*WINDOW_SIZE), 10)
             SENT_TICK = False
             LOSS_EVENT = False
             Counter = 1
