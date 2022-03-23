@@ -40,7 +40,7 @@ def no_frills_udp_client():
             no_frills_buffer.append(payload)
 
     timer = list()
-    for k in range(100):
+    for k in range(10):
         start = time.time()
         for i in range(0, len(no_frills_buffer)):
             sock.send(no_frills_buffer[i])
@@ -50,7 +50,7 @@ def no_frills_udp_client():
         timer.append(end)
         time.sleep(1)
 
-    print("Time taken:",s.mean(timer))
+    print("Time taken:",stat.mean(timer))
 
 # measure additional time taken for packet resending
 # this will just mass resend
@@ -74,7 +74,7 @@ def rbt_sender(sock, total_packets, buffer):
             for i in range(start, start+threshold):
                 try:
                     sock.send(buffer[i])
-
+                    # print("SEND:",i)
                     SEND_LIST_seq.append(i)
                     SEND_LIST_time.append(time.time())
 
@@ -99,6 +99,8 @@ def rbt_receiver(sock, total_packets, a, tree, pos):
         data, addr = sock.recvfrom(1472)
         data = a.unpack(data)
         ack, seq = data[0], data[1]
+        if (ack == 3):
+            break
 
         if (ack == 1 and pos[seq]):
             #print("wdf4")
@@ -902,13 +904,14 @@ RECEIVED_SET = set()
 
 RESEND = None
 RESEND_COUNTER = 0
+curr_min_congestion = 0
 
 congestion_lock = threading.Lock()
 # https://www.cs.cmu.edu/~srini/15-441/F07/project3/project3.pdf
 def congestion_receiver(sock, total_packets, a, congestion_buffer):
     global WINDOW_SIZE, SSTHRESH, IN_TRANSIT, LAST_ACK, AVG_RTT, STOP_THREAD
     global ACKS_ARR, LOSS_EVENT, MAX_RTT, TIME_STAMP_ARR, CONGESTION_AVOIDANCE # arr
-    global WINDOW_SIZE_LIST, SENT_TICK, congestion_lock, RECEIVED_SET, RESEND, RESEND_COUNTER
+    global WINDOW_SIZE_LIST, SENT_TICK, congestion_lock, RECEIVED_SET, RESEND, RESEND_COUNTER, curr_min_congestion
     waited = 0
 
     ACKS_ARR = [0]*(total_packets+1)
@@ -916,7 +919,7 @@ def congestion_receiver(sock, total_packets, a, congestion_buffer):
         #if (IN_TRANSIT > 0):  # if there are packets in transit
                 data, addr = sock.recvfrom(1500)
                 data = a.unpack(data)
-                ack, seq = data[0], data[1]
+                ack, seq, curr_min_congestion = data[0], data[1], int(data[2])
                 ACKS_ARR[seq] += 1
 
                 if (ack == 3):
@@ -952,6 +955,10 @@ def congestion_receiver(sock, total_packets, a, congestion_buffer):
                     else: 
                         waited += 1
                         IN_TRANSIT = 0
+
+                    if (curr_min_congestion):
+                        sock.send(congestion_buffer[curr_min_congestion])  # resend packet in current index
+
                     congestion_lock.release()
                 if (ack == 0):
                     starter = time.time()
@@ -967,7 +974,7 @@ def congestion_receiver(sock, total_packets, a, congestion_buffer):
 
 def congestion_sender(sock, total_packets, retransmission_time, congestion_buffer):
     global WINDOW_SIZE, LAST_ACK, TIME_STAMP_ARR, RANDOM_ERROR, CONGESTION_AVOIDANCE
-    global IN_TRANSIT, AVG_RTT, STOP_THREAD, SENT_TICK, RECEIVED_SET
+    global IN_TRANSIT, AVG_RTT, STOP_THREAD, SENT_TICK, RECEIVED_SET, curr_min_congestion
 
     TIME_STAMP_ARR = [[None,None] for i in range(0,total_packets)]
     
@@ -979,6 +986,9 @@ def congestion_sender(sock, total_packets, retransmission_time, congestion_buffe
         congestion_lock.release()
 
         while (local_in_transit < local_window and packetCount < total_packets and not STOP_THREAD):
+            if (packetCount < curr_min_congestion): 
+                packetCount += 1
+                continue
             sock.send(congestion_buffer[packetCount])  # send packet in current index
             starter = time.time()
             TIME_STAMP_ARR[packetCount][0] = starter  # start timer
@@ -1072,7 +1082,7 @@ def congestion_control():
     s = struct.Struct('!IHH')
     a = struct.Struct('!IIf')
     congestion_buffer = list()
-
+    
     print("Experiment congestion control started")
     with open(input_path, 'rb') as f:
         size = Path(input_path).stat().st_size
@@ -1131,7 +1141,7 @@ def congestion_control():
         old_min = WINDOW_SIZE_TIME[0]
         old_max = WINDOW_SIZE_TIME[-1]
         new_min = 0
-        new_max = 100
+        new_max = 1000
         
         for i in range(0,len(WINDOW_SIZE_TIME)):
             old_value = WINDOW_SIZE_TIME[i]
@@ -1151,11 +1161,11 @@ def congestion_control():
     time.sleep(20)
 
 if __name__ == "__main__":
-    # no_frills_udp_client()
+    no_frills_udp_client()
     # varying_mtu_udp_client()
     # packet_resending_udp_client(1472)
     # compress_text()
     # ll_udp_client()
     # selective_repeat_udp_client()
     # go_back_N_udp_client()
-    congestion_control()
+    # congestion_control()

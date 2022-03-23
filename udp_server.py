@@ -13,16 +13,21 @@ def base_udp_scenario():
     sock.bind(('', UDP_PORT))
     print("base no frills Server Started")
     
-    total_packets = 21740
+    total_packets = 1000
     # sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,total_packets*1472)
     count = 0
+    flag = False
 
     while True:
         try:
             data, addr = sock.recvfrom(1500)
+            if not (flag):
+                flag = True
+                start_time = time.time()
             count += 1
-            
+            print(count)
             if (count == total_packets): 
+                print(time.time() - start_time)
                 #print("Status: all packets received, ending experiment")
                 # sock.settimeout(3600)
                 count = 0
@@ -62,7 +67,7 @@ def reodering_udp_scenario():
         print("Status: experiment started")
         count = 0
         times = 0
-
+        
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
@@ -73,11 +78,15 @@ def reodering_udp_scenario():
                 if pos[seq]: # ack by deleting from rbt
                     node = pos[seq]
                     pos[seq] = None
-                    tree.delete_obj(node)
+                    try:
+                        tree.delete_obj(node)
+                    except:
+                        pass
                     ack_packet = a.pack(1, seq)
                     sock.sendto(ack_packet, addr)
                     count += 1
-
+                    print(count)
+                    
                     curr_min = tree.minimum()
                     if (curr_min):
                         curr_min = curr_min.item
@@ -93,8 +102,10 @@ def reodering_udp_scenario():
                 
                 # need to decide when to check which packet not received
                 # and need rbt to loop through all
-                if (count == total_packets): 
+                if (count == total_packets - 1): 
                     print("Status: all packets received, ending experiment")
+                    ack_packet = a.pack(3, 999)
+                    sock.sendto(ack_packet, addr)
                     sock.settimeout(3600)
                     count = 0
                     total_packets = 0
@@ -212,7 +223,7 @@ def go_back_N_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                if (random.random() < 0.1): continue
+                if (random.random() < 0.3): continue
                 # if (random.random() > 0.9): continue
 
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
@@ -261,7 +272,7 @@ def ll_udp_server():
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
-                if (random.random() < 0.1): continue
+                if (random.random() < 0.3): continue
                 
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
                 received.add(sequenceNum)
@@ -395,7 +406,10 @@ def congestion_udp_server():
     s = struct.Struct('!IHH')
     a = struct.Struct('!IIf')
     received = set()
-    min_received = None
+    missing = set()
+    tree = rbt.RedBlackTree()
+    pos = dict()
+    prev = None
 
     print("Congestion Server Started")
 
@@ -406,6 +420,9 @@ def congestion_udp_server():
             
             if (data):
                 init, total_packets, lost_percent = a.unpack(data)
+                for i in range(1,total_packets):
+                    node = tree.insert(i)
+                    pos[i] = node
                 print("Status: received init from", addr)
                 sock.sendto("1".encode(), addr)
             
@@ -417,36 +434,59 @@ def congestion_udp_server():
         except Exception as e:
             print(e)
 
+        start_time = time.time()
+
         while True:
             try:
                 data, addr = sock.recvfrom(1500)
                 sequenceNum, checkSum, total_packets, data = network.dessemble_packet(data)
-
                 # random effect
                 # totally lost, random
                 # take longer
                 # sent multiple times
-                if (network.calculate_checksum(data) != checkSum or random.random() < 0.1):
+                if (sequenceNum > 0 and network.calculate_checksum(data) != checkSum or random.random() < 0.3):
                     type = random.randint(1, 3)
                     if (type == 1):
                         continue
                     elif (type == 2):
                         error_packet = a.pack(0, sequenceNum, 0)
                         sock.sendto(error_packet, addr)
-                    else:
+                    else: # 3 duplicate ack
                         received.add(sequenceNum)
                         ack_packet = a.pack(1, sequenceNum, 0)
                         sock.sendto(ack_packet, addr)
                         sock.sendto(ack_packet, addr)
                         sock.sendto(ack_packet, addr)
                 else:
-                    received.add(int(sequenceNum))
-                    print("RECEIVED:",sequenceNum)
-                    ack_packet = a.pack(1, sequenceNum, 0)
-                    sock.sendto(ack_packet, addr)
+                    if (not sequenceNum in received):
+                        try:
+                            tree.delete_node_by_pos(pos[sequenceNum])
+                        except:
+                            pass
+
+                        received.add(int(sequenceNum))
+                        curr_min = tree.minimum().item
+                        
+                        if (curr_min < sequenceNum):
+                            ack_packet = a.pack(1, sequenceNum, curr_min)
+                            sock.sendto(ack_packet, addr)
+                        else:
+                            ack_packet = a.pack(0, sequenceNum, 0)
+                            sock.sendto(ack_packet, addr)
+
+
+                    # if (sequenceNum > curr_min): counter += 1
+
+                    # if (counter > 10):
+                    #     print("RESENDING FOR:",curr_min)
+                    #     counter = 0
+                    #     ack_packet = a.pack(1, sequenceNum, curr_min)
+                    #     sock.sendto(ack_packet, addr)
+                    # else:
                     
                 print(len(received))
                 if (len(received) == (total_packets - 1)): 
+                    end = time.time() - start_time
                     print(len(received))
                     print("Status: all packets received, ending experiment")
                     ack_packet = a.pack(3, sequenceNum, 0)
@@ -456,13 +496,16 @@ def congestion_udp_server():
                     sock.settimeout(3600)
                     received = set()
                     total_packets = 0
+                    print("TIME TAKEN:", end)
                     break
-                
-            except socket.timeout as e:
-                print(len(received))
-                print("Status: have not received anything in 5 secs, ending experiment")
-                sock.settimeout(3600)
-                break
+
+            except Exception as e:
+                print(e)
+            # except socket.timeout as e:
+            #     print(len(received))
+            #     print("Status: have not received anything in 5 secs, ending experiment")
+            #     sock.settimeout(3600)
+            #     break
         break
 
 if __name__ == "__main__":
@@ -471,9 +514,9 @@ if __name__ == "__main__":
     # go_back_N_udp_server()
     # selective_repeat_udp_server()
     # compressed_udp_server()
-    congestion_udp_server()
+    # congestion_udp_server()
     # ll_udp_server()
     # selective_repeat_udp_server()
-    # base_udp_scenario()
+    base_udp_scenario()
     # python udp_server.py
     # python udp.py
