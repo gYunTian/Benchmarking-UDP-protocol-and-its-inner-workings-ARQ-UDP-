@@ -1,7 +1,7 @@
 # Benchmarking-UDP-protocol-and-its-inner-workings-ARQ-UDP-
 
-In this project, I implemented Automatic Repeat Request Algorithms using Python UDP protocol (networking). </br>
-Specifically, the Go Back N and Selective Repeat Algorithm. </br>
+In this project, I implemented Automatic Repeat Request Algorithms using Python UDP protocol (networking). </br></br>
+Specifically, the Go Back N and Selective Repeat Algorithm. </br></br>
 I made slight changes to the Selective Repeat Algorithm using a Red Black Tree as well as Double Linked List in order to speed things up.
 
 Additionally, I benchmarked parameters such as MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP.
@@ -9,7 +9,8 @@ Additionally, I benchmarked parameters such as MTU (Max Transmission Unit/Size i
 # Why is this important
 Getting into the inner workings of a network protocol allows us to better understand what are the trade offs between the parameters
 
-Say if one wants to implement a custom application, one can implement certain feature of the network protocol to behave in specific ways beneficial to the underlying app, </br> i.e. we can include logging of the packets, failure rate, time taken (round time), increase number of threads, custom data structures/packet format and for security purposes (as the code are written by oneself)
+1) Say if one wants to implement a custom application, one can implement certain feature of the network protocol to behave in specific ways beneficial to the underlying app, </br> 
+2) i.e. we can include logging of the packets, failure rate, time taken (round time), increase number of threads, custom data structures/packet format and for security purposes (as the code are written by oneself)
 
 
 # Unfortunately, the powerpoint slides I used for presenting is lost as my school closed the Google Drive Share.
