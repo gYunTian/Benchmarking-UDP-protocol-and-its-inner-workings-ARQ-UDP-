@@ -6,6 +6,12 @@ I made slight changes to the Selective Repeat Algorithm using a Red Black Tree a
 
 Additionally, I benchmarked parameters such as MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP.
 
+# Why is this important
+Getting into the inner workings of a network protocol allows us to better understand what are the trade offs between the parameters
+
+Say if one wants to implement a custom application, one can implement certain feature of the network protocol to behave in specific ways beneficial to the underlying app, </br> i.e. we can include logging of the packets, failure rate, time taken (round time), increase number of threads, custom data structures/packet format and for security purposes (as the code are written by oneself)
+
+
 # Unfortunately, the powerpoint slides I used for presenting is lost as my school closed the Google Drive Share.
 
 Nonetheless, here are some plots that I happened to upload to this Github.
