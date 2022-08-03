@@ -4,7 +4,7 @@ Inspired by Google's QUIC, In this project, I implemented <b>Automatic Repeat Re
 Specifically, the <b> Go Back N and Selective Repeat Algorithm</b>. </br></br>
 I made slight changes to the Selective Repeat Algorithm using a Red Black Tree as well as Double Linked List in order to speed things up.
 
-Additionally, I <b>benchmarked parameters such as MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP</b>.
+Additionally, I <b>benchmarked parameters such as Packet Loss rate, MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP</b>.
 
 # Why is this important
 Getting into the <b>inner workings of a network protocol allows us to better understand what are the trade offs between the parameters</b>
@@ -19,7 +19,7 @@ Nonetheless, here are some plots that I happened to upload to this Github.
 
 <b> Go Back N: Experiments found that this is the slowest of all Algorithms </b> that I Implemented. 
 This is to be expected. 
-Plot below shows the send vs receive time for each packet.</br></br>
+Plot below shows the send vs receive time for each packet with 10% packet loss.</br></br>
 
 ![image](https://user-images.githubusercontent.com/54625060/182522180-c3f13a4e-3340-44fa-8c2d-d58737309fef.png)
 </br>
@@ -31,5 +31,7 @@ This is the fastest out of all the algorithms I implemented. The Blue lines indi
 
 <b>Selective Repeat, with Data Structure changed to doubly linked list</b>:
 Second fastest among the 3. A more well behaved algorithm with lesser amount of packets sent in any period of time and but still fast enough.
+
+The orange line zig zags meaning that it is able to recover well from packets that were 'lost'
 ![image](https://user-images.githubusercontent.com/54625060/182522384-bafcf670-711e-42a5-830a-bf51f4879a24.png)
 </br> 
