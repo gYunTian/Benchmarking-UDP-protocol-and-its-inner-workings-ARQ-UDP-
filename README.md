@@ -1,13 +1,13 @@
 # Benchmarking-UDP-protocol-and-its-inner-workings-ARQ-UDP-
 
-In this project, I implemented Automatic Repeat Request Algorithms using Python UDP protocol (networking). </br></br>
-Specifically, the Go Back N and Selective Repeat Algorithm. </br></br>
+Inspired by Google's QUIC, In this project, I implemented <b>Automatic Repeat Request Algorithms using Python UDP protocol (networking)</b>. </br></br>
+Specifically, the <b> Go Back N and Selective Repeat Algorithm</b>. </br></br>
 I made slight changes to the Selective Repeat Algorithm using a Red Black Tree as well as Double Linked List in order to speed things up.
 
-Additionally, I benchmarked parameters such as MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP.
+Additionally, I <b>benchmarked parameters such as MTU (Max Transmission Unit/Size in a packet), Compression, Number of Threads dedicated to running the UDP</b>.
 
 # Why is this important
-Getting into the inner workings of a network protocol allows us to better understand what are the trade offs between the parameters
+Getting into the <b>inner workings of a network protocol allows us to better understand what are the trade offs between the parameters</b>
 
 1) Say if one wants to implement a custom application, one can implement certain feature of the network protocol to behave in specific ways beneficial to the underlying app, </br> 
 2) i.e. we can include logging of the packets, failure rate, time taken (round time), increase number of threads, custom data structures/packet format and for security purposes (as the code are written by oneself)
@@ -17,17 +17,17 @@ Getting into the inner workings of a network protocol allows us to better unders
 
 Nonetheless, here are some plots that I happened to upload to this Github.
 
-Go Back N: Experiments found that this is the slowest of all Algorithms that I Implemented. This is to be expected. 
-Plot below shows the send vs receive time for each packet.
+<b> Go Back N: Experiments found that this is the slowest of all Algorithms </b> that I Implemented. This is to be expected. 
+Plot below shows the send vs receive time for each packet.</br>
 ![image](https://user-images.githubusercontent.com/54625060/182522180-c3f13a4e-3340-44fa-8c2d-d58737309fef.png)
 </br>
 
-Selective Repeat, with Data Structure changed to Red Black Tree: 
+<b> Selective Repeat, with Data Structure changed to Red Black Tree</b>: 
 This is the fastest out of all the algorithms I implemented
 ![image](https://user-images.githubusercontent.com/54625060/182522339-e07ed486-d366-4999-b2d2-20f291d34fe0.png)
 </br>
 
-Selective Repeat, with Data Structure changed to doubly linked list:
+<b>Selective Repeat, with Data Structure changed to doubly linked list</b>:
 Second fastest
 ![image](https://user-images.githubusercontent.com/54625060/182522384-bafcf670-711e-42a5-830a-bf51f4879a24.png)
 </br> 
